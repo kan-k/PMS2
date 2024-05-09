@@ -1,0 +1,1477 @@
+---
+title: "Varscreen"
+author: "Kan Keeratimahat"
+date: "11/03/2024"
+output: html_document
+---
+
+#11 Mar
+Want to test a reconstruction of data for Lambda matrix, using Robust PCA.
+I will test on a subset of data, so just for testing, I will use a centre mask that I created in `pms_extension_2.Rmd` in the folder PMS
+which is done via
+`submask[36:54,47:60,32:45] <- mask_subcor[36:54,47:60,32:45]`
+table(submask[submask!=0]) #1613 voxels in total
+saved as `'/well/nichols/users/qcv214/PMS/sub_centre_mask'`
+
+I will also used a saved dataset from there with 4xxx subjects. Do not use this in the future
+I will subset this to 100
+```{r}
+library(feather)
+sub.dat <- read_feather('/well/nichols/users/qcv214/PMS/sub_dat.feather') #dim = 4263 124859
+#Let's subset that to 100
+sub.dat.test <- as.matrix(sub.dat[101:200,])
+sub.dat <- as.matrix(sub.dat[1:100,])
+```
+
+
+##Get age response
+```{r}
+part_list<-read.table('/well/nichols/users/qcv214/Placement_2/participant_list.txt', header = FALSE, sep = "", dec = ".") #4529 participants
+part_list$exist_vbm <- file.exists(paste0('/well/win-biobank/projects/imaging/data/data3/subjectsAll/',part_list[,1],'/T1/T1_vbm/T1_GM_to_template_GM_mod.nii.gz'))
+#These two are equal
+part_use<-part_list[part_list$exist_vbm==1,] #4262 participants left
+part_use<-part_use[1:200,] #only take 100
+
+agetab<-read.table(file = '/well/nichols/projects/UKB/SMS/ukb_latest-Age.tsv', sep = '\t', header = TRUE)
+age_tab<-as.data.frame(matrix(,nrow = length(part_use$V1),ncol = 2)) #id, age, number of masked voxels
+colnames(age_tab)[1:2]<-c('id','age')
+age_tab$id<-part_use$V1
+for(i in 1:length(part_use$V1)){
+  age_tab$age[i]<-agetab$X21003.2.0[agetab$eid_8107==sub(".", "",age_tab$id[i])]
+}
+
+age_tab.test <- age_tab[101:200,]
+age_tab <- age_tab[1:100,]
+
+```
+
+###Fit with lasso
+```{r}
+library(glmnet)
+set.seed(4)
+fit <- cv.glmnet(sub.dat,age_tab$age, alpha=1)
+coef.lasso <- coef(fit, s="lambda.min")
+#Above is super sparse 
+sum(coef.lasso!=0) #59 out of 1k... this is very sensitive to runs, some only have 16 selected
+coef.selected <- rownames(coef.lasso)[which(coef.lasso!=0)]
+```
+
+####I will fit Ridge to obtain estimated beta
+```{r}
+set.seed(4)
+fit.ridge <- cv.glmnet(sub.dat,age_tab$age, alpha=0)
+beta <- coef(fit.ridge)
+beta_no_int <- beta[-1,]
+rank_beta.ridge <- beta_no_int[order(abs(beta_no_int), decreasing=TRUE)]
+#y - xbeta
+err <- as.numeric(age_tab$age - cbind(1,sub.dat)%*%beta)
+```
+
+### Robust PCA
+####Robust PCA is calcualted based on `h` data points with smallest outlyingness measure used to compute cov matrix before pca
+
+```{r}
+library(rrcov) #Package for robust PCA
+set.seed(4)
+pca <- PcaHubert(sub.dat) #it only picks 10 PC ####Note that I need to change kmax to greater than 10
+lambda <- pca$loadings[,10] %*% t(pca$loadings[,10]) 
+Omeg <- solve(sub.dat%*%lambda%*%t(sub.dat) + (1e-5)*diag(nrow(sub.dat))) #4x4 
+pre_beta_pms <- lambda%*%t(sub.dat)%*%Omeg #4 x 75
+
+beta_pms <- beta[2:length(beta)] + pre_beta_pms%*%err
+rownames(beta_pms) <- colnames(sub.dat)
+#rank the absolute value of beta_pms with corresponding variable names
+rank_beta_pms <- beta_pms[order(abs(beta_pms), decreasing=TRUE),]
+
+nomean_beta_pms <- pre_beta_pms%*%err
+rownames(nomean_beta_pms) <- colnames(sub.dat)
+head(nomean_beta_pms[order(abs(nomean_beta_pms), decreasing=TRUE),],20)
+```
+
+###Vanilla PCA
+```{r}
+set.seed(4)
+pca.normal <- prcomp(sub.dat)
+#plot the variance explained
+plot(pca.normal)
+lambda.normal <- pca.normal$rotation[,10] %*% t(pca.normal$rotation[,10])
+Omeg <- solve(sub.dat%*%lambda.normal%*%t(sub.dat) + (1e-5)*diag(nrow(sub.dat))) #4x4 
+#Construct pre_beta_pms
+pre_beta_pms.normal <- lambda.normal%*%t(sub.dat)%*%Omeg #4 x 75
+
+beta_pms.normal <- beta[2:length(beta)] + pre_beta_pms.normal %*%err
+rownames(beta_pms.normal) <- colnames(sub.dat)
+#rank the absolute value of beta_pms with corresponding variable names
+rank_beta_pms.normal <- beta_pms.normal[order(abs(beta_pms.normal), decreasing=TRUE),]
+
+nomean_beta_pms.normal <- pre_beta_pms.normal%*%err
+rownames(nomean_beta_pms.normal) <- colnames(sub.dat)
+head(nomean_beta_pms.normal[order(abs(nomean_beta_pms.normal), decreasing=TRUE),],20)
+```
+#Let's look at overlap
+```{r}
+overlap <- function(rank_normal, rank_robust, k){
+  top_k_normal <- names(rank_robust)[1:k]
+  top_k <- names(rank_normal)[1:k]
+  print(paste("Overlap of top", k, "variables:", length(intersect(top_k_normal, top_k)) ))
+}
+
+```
+```{r}
+for (i in c(10,54,100,200,500)){
+  overlap(rank_beta_pms.normal,rank_beta_pms,i)
+}
+```
+
+```{r}
+ranked_nomean_beta_pms.normal <- nomean_beta_pms.normal[order(abs(nomean_beta_pms.normal), decreasing=TRUE),]
+ranked_nomean_beta_pms <- nomean_beta_pms[order(abs(nomean_beta_pms), decreasing=TRUE),]
+for (i in c(10,100,200)){
+  overlap(ranked_nomean_beta_pms.normal,ranked_nomean_beta_pms,i)
+}
+```
+
+```{r}
+sum(coef.selected %in% names(ranked_nomean_beta_pms[1:500]))
+```
+
+
+### sd of data
+```{r}
+sd(age_tab$age)
+```
+
+###Let's do a prediction accuracy check with the same number of selected variables as LASSO by fitting ridge
+```{r}
+n.var <- length(coef.selected)-1 #minus intercept
+yhat <- predict(fit, newx=sub.dat, s="lambda.min")
+sqrt(mean((yhat - age_tab$age)^2)) #2.48
+yhat.test <- predict(fit, newx=sub.dat.test, s="lambda.min")
+sqrt(mean((yhat.test - age_tab.test$age)^2)) #2.48
+
+```
+How is lasso so low. ==> keep in mind this is training sample
+
+###Ridge
+```{r}
+yhat <- predict(fit.ridge, newx=sub.dat, s="lambda.min")
+sqrt(mean((yhat - age_tab$age)^2)) #2.48
+yhat.test <- predict(fit.ridge, newx=sub.dat.test, s="lambda.min")
+sqrt(mean((yhat.test - age_tab.test$age)^2)) #2.48
+```
+1.816
+
+###Normal pca
+```{r}
+var.sel<- names(rank_beta_pms.normal[1:n.var])
+fit.ridge.pca.normal <- cv.glmnet(sub.dat[,var.sel],age_tab$age, alpha=0)
+beta <- coef(fit.ridge.pca.normal)
+#y - xbeta
+(rmse.normal <- sqrt(mean((as.numeric(age_tab$age - cbind(1,sub.dat[,var.sel])%*%beta))^2)))
+```
+
+```{r}
+var.sel<- names(rank_beta_pms.normal[1:500])
+fit.ridge.pca.normal <- cv.glmnet(sub.dat[,var.sel],age_tab$age, alpha=0)
+beta <- coef(fit.ridge.pca.normal)
+#y - xbeta
+(rmse.normal <- sqrt(mean((as.numeric(age_tab$age - cbind(1,sub.dat[,var.sel])%*%beta))^2)))
+(rmse.normal.test <- sqrt(mean((as.numeric(age_tab.test$age - cbind(1,sub.dat.test[,var.sel])%*%beta))^2)))
+
+```
+
+
+###RobPCA
+```{r}
+var.sel<- names(rank_beta_pms[1:n.var])
+fit.ridge.pca <- cv.glmnet(sub.dat[,var.sel],age_tab$age, alpha=0)
+beta <- coef(fit.ridge.pca)
+#y - xbeta
+(rmse <- sqrt(mean((as.numeric(age_tab$age - cbind(1,sub.dat[,var.sel])%*%beta))^2)))
+```
+```{r}
+var.sel<- names(rank_beta_pms[1:500])
+fit.ridge.pca <- cv.glmnet(sub.dat[,var.sel],age_tab$age, alpha=0)
+beta <- coef(fit.ridge.pca)
+#y - xbeta
+(rmse <- sqrt(mean((as.numeric(age_tab$age - cbind(1,sub.dat[,var.sel])%*%beta))^2)))
+(rmse.test <- sqrt(mean((as.numeric(age_tab.test$age - cbind(1,sub.dat.test[,var.sel])%*%beta))^2)))
+
+```
+
+
+#18 Mar
+
+##To do
+1. Change beta prior to 0 (or leave as ridge)
+2. Compare this model against truncated ridge
+3. Use Lambda to make prediction/fit model as well.
+4. Visualise the power of selected pms stats 
+5. Do held out performance /
+
+
+##Assessing the improvement in voxels inclusion
+
+```{r}
+long.rmse <- function(ranked_coef, num.vox.vec){
+  train <- vector(mode = 'numeric')
+  test <- vector(mode = 'numeric')
+  for(i in num.vox.vec){
+    var.sel<- names(ranked_coef[1:i])
+    fit.ridge.pca <- cv.glmnet(sub.dat[,var.sel],age_tab$age, alpha=0)
+    beta <- coef(fit.ridge.pca)
+    train <- c(train,sqrt(mean((as.numeric(age_tab$age - cbind(1,sub.dat[,var.sel])%*%beta))^2)))
+    test <- c(test,sqrt(mean((as.numeric(age_tab.test$age - cbind(1,sub.dat.test[,var.sel])%*%beta))^2)))
+  }
+  out <- list()
+  out$train <- train
+  out$test <- test
+  return(out)
+}
+```
+
+```{r}
+num.vox.vec <- (1:100)*10
+
+res.ropca <- long.rmse(rank_beta_pms, num.vox.vec)
+res.pca <- long.rmse(rank_beta_pms.normal, num.vox.vec)
+res.ridge <- long.rmse(rank_beta.ridge, num.vox.vec)
+
+```
+
+##Plot bbs loss
+```{r}
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res.ropca$train,res.pca$train,res.ridge$train))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(2,5) +
+  theme_minimal() +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+```
+
+```{r}
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res.ropca$test,res.pca$test,res.ridge$test))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(5.5,6.5) +
+  theme_minimal() +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+##Do selection with prior mu = 0
+```{r}
+#Robust PCA
+set.seed(4)
+pca <- PcaHubert(sub.dat) #it only picks 10 PC ####Note that I need to change kmax to greater than 10
+lambda <- pca$loadings[,10] %*% t(pca$loadings[,10]) 
+Omeg <- solve(sub.dat%*%lambda%*%t(sub.dat) + (1e-5)*diag(nrow(sub.dat))) #4x4 
+pre_beta_pms <- lambda%*%t(sub.dat)%*%Omeg #4 x 75
+beta_pms <- pre_beta_pms%*%age_tab$age
+rownames(beta_pms) <- colnames(sub.dat)
+rank_beta_pms <- beta_pms[order(abs(beta_pms), decreasing=TRUE),]
+
+
+#PCA 
+set.seed(4)
+pca.normal <- prcomp(sub.dat)
+lambda.normal <- pca.normal$rotation[,10] %*% t(pca.normal$rotation[,10])
+Omeg <- solve(sub.dat%*%lambda.normal%*%t(sub.dat) + (1e-5)*diag(nrow(sub.dat))) #4x4 
+pre_beta_pms.normal <- lambda.normal%*%t(sub.dat)%*%Omeg #4 x 75
+beta_pms.normal <- pre_beta_pms.normal %*%age_tab$age
+rownames(beta_pms.normal) <- colnames(sub.dat)
+rank_beta_pms.normal <- beta_pms.normal[order(abs(beta_pms.normal), decreasing=TRUE),]
+plot(cumsum(pca.normal$sdev^2)/sum(pca.normal$sdev^2), type = 'b')
+
+```
+This cumulative plot shows
+
+
+
+```{r}
+num.vox.vec <- (1:100)*10
+
+res.ropca <- long.rmse(rank_beta_pms, num.vox.vec)
+res.pca <- long.rmse(rank_beta_pms.normal, num.vox.vec)
+res.ridge <- long.rmse(rank_beta.ridge, num.vox.vec)
+
+```
+```{r}
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res.ropca$train,res.pca$train,res.ridge$train))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(2,8) +
+  theme_minimal() +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+```
+
+```{r}
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res.ropca$test,res.pca$test,res.ridge$test))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(5.5,8) +
+  theme_minimal() +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+The ridge result isn't adding up with the previous one. In the previous one, ridge had so much better training rmse than this. 
+
+##Do predictions with Lambda incorporated
+I believe this is just doing PMS with rows deleted. Actually lambda is p x p.
+I think I will keep the same lambda structure but assign 0 to X instead.
+
+##Create a function to calculate beta pms with zero-ed row of X
+```{r}
+long.rmse.with.lambda <- function(ranked_coef, num.vox.vec, lambda){
+  train <- vector(mode = 'numeric')
+  test <- vector(mode = 'numeric')
+  for(i in num.vox.vec){
+    var.sel<- names(ranked_coef[1:i])
+    sub.dat.sub <- sub.dat
+    sub.dat.test.sub <- sub.dat.test
+    
+    mask.out <- setdiff(colnames(sub.dat),var.sel)
+    sub.dat.sub[,mask.out] <- 0
+    sub.dat.test.sub[,mask.out] <- 0
+    
+    Omeg <- solve(sub.dat.sub%*%lambda%*%t(sub.dat.sub) + (1e-5)*diag(nrow(sub.dat.sub)))
+    beta_pms <- lambda%*%t(sub.dat.sub)%*%Omeg%*%age_tab$age
+    intercept <- mean(age_tab$age) - colMeans(sub.dat.sub)%*%beta_pms 
+    
+    beta <- c(intercept,beta_pms)
+    train <- c(train,sqrt(mean((as.numeric(age_tab$age - cbind(1,sub.dat.sub)%*%beta))^2)))
+    test <- c(test,sqrt(mean((as.numeric(age_tab.test$age - cbind(1,sub.dat.test.sub)%*%beta))^2)))
+  }
+  out <- list()
+  out$train <- train
+  out$test <- test
+  return(out)
+}
+```
+
+```{r}
+num.vox.vec <- (1:100)*10
+
+res.lambda.ropca <- long.rmse.with.lambda(rank_beta_pms, num.vox.vec,lambda)
+res.lambda.pca <- long.rmse.with.lambda(rank_beta_pms.normal, num.vox.vec,lambda.normal)
+
+```
+
+```{r}
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res.lambda.ropca$train,res.lambda.pca$train,res.ridge$train))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(2,30) +
+  theme_minimal() +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+```
+
+```{r}
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res.lambda.ropca$test,res.lambda.pca$test,res.ridge$test))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(5.5,30) +
+  theme_minimal() +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+#21 March
+
+Look at variance explained
+##Do selection with prior mu = 0
+```{r}
+#Robust PCA
+set.seed(4)
+pca <- PcaHubert(sub.dat,kmax=100) #it only picks 10 PC ####Note that I need to change kmax to greater than 10
+lambda <- pca$loadings[,36] %*% t(pca$loadings[,36]) 
+Omeg <- solve(sub.dat%*%lambda%*%t(sub.dat) + (1e-5)*diag(nrow(sub.dat))) #4x4 
+pre_beta_pms <- lambda%*%t(sub.dat)%*%Omeg #4 x 75
+beta_pms <- pre_beta_pms%*%age_tab$age
+rownames(beta_pms) <- colnames(sub.dat)
+rank_beta_pms <- beta_pms[order(abs(beta_pms), decreasing=TRUE),]
+pca.sum <- summary(pca)
+```
+Robust pca only allowed 53 PCs.... and variance explaied is 100%
+Let's pick PCs such that it takes at least 90% of variance, which is 36 PCs
+
+
+```{r}
+#PCA 
+set.seed(4)
+pca.normal <- prcomp(sub.dat)
+lambda.normal <- pca.normal$rotation[,72] %*% t(pca.normal$rotation[,72])
+Omeg <- solve(sub.dat%*%lambda.normal%*%t(sub.dat) + (1e-5)*diag(nrow(sub.dat))) #4x4 
+pre_beta_pms.normal <- lambda.normal%*%t(sub.dat)%*%Omeg #4 x 75
+beta_pms.normal <- pre_beta_pms.normal %*%age_tab$age
+rownames(beta_pms.normal) <- colnames(sub.dat)
+rank_beta_pms.normal <- beta_pms.normal[order(abs(beta_pms.normal), decreasing=TRUE),]
+plot(cumsum(pca.normal$sdev^2)/sum(pca.normal$sdev^2), type = 'b')
+min(which(cumsum(pca.normal$sdev^2)/sum(pca.normal$sdev^2) > 0.9)) #72
+```
+This PCA cumulative plot shows that we need n = 99 or 100, or something way larger than 10.
+Take 72 PCs then it explains 90% of variance explained
+
+```{r}
+num.vox.vec <- (1:100)*10
+
+res.ropca <- long.rmse(rank_beta_pms, num.vox.vec)
+res.pca <- long.rmse(rank_beta_pms.normal, num.vox.vec)
+res.ridge <- long.rmse(rank_beta.ridge, num.vox.vec)
+
+```
+```{r}
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res.ropca$train,res.pca$train,res.ridge$train))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(2,8) +
+  theme_minimal() +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+```
+
+```{r}
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res.ropca$test,res.pca$test,res.ridge$test))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(5.5,8) +
+  theme_minimal() +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+##With lambda prediction
+```{r}
+num.vox.vec <- (1:100)*10
+
+res.lambda.ropca <- long.rmse.with.lambda(rank_beta_pms, num.vox.vec,lambda)
+res.lambda.pca <- long.rmse.with.lambda(rank_beta_pms.normal, num.vox.vec,lambda.normal)
+
+```
+
+```{r}
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res.lambda.ropca$train,res.lambda.pca$train,res.ridge$train))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(2,30) +
+  theme_minimal() +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+```
+```{r}
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res.lambda.ropca$test,res.lambda.pca$test,res.ridge$test))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(5.5,30) +
+  theme_minimal() +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+
+#25 Mar
+
+I need to perhaps scale this to larger images.
+
+Before going into full images, lets scale it up 10 times?
+
+##Get the sub Mask
+```{r}
+mask_subcor<-oro.nifti::readNIfTI('/well/nichols/users/qcv214/PMS/mask_without_WM_and_stem_thrsholded.nii.gz')
+
+submask <-array(0,dim=dim(mask_subcor))
+submask[26:64,37:70,22:55] <- mask_subcor[26:64,37:70,22:55] 
+table(submask[submask!=0]) #1613 voxels in total
+length(submask[submask!=0]) #15,847 voxels
+
+writeNIfTI(submask,'/well/nichols/users/qcv214/pms2/sub150_centre_mask') #/well/nichols/users/qcv214/pms2
+
+```
+
+##Get age response
+```{r}
+part_list<-read.table('/well/nichols/users/qcv214/Placement_2/participant_list.txt', header = FALSE, sep = "", dec = ".") #4529 participants
+part_list$exist_vbm <- file.exists(paste0('/well/win-biobank/projects/imaging/data/data3/subjectsAll/',part_list[,1],'/T1/T1_vbm/T1_GM_to_template_GM_mod.nii.gz'))
+#These two are equal
+part_use<-part_list[part_list$exist_vbm==1,] #4262 participants left
+part_use<-part_use[1:200,] #only take 100
+
+agetab<-read.table(file = '/well/nichols/projects/UKB/SMS/ukb_latest-Age.tsv', sep = '\t', header = TRUE)
+age_tab<-as.data.frame(matrix(,nrow = length(part_use$V1),ncol = 2)) #id, age, number of masked voxels
+colnames(age_tab)[1:2]<-c('id','age')
+age_tab$id<-part_use$V1
+for(i in 1:length(part_use$V1)){
+  age_tab$age[i]<-agetab$X21003.2.0[agetab$eid_8107==sub(".", "",age_tab$id[i])]
+}
+age_tab.test <- age_tab[101:200,]
+age_tab <- age_tab[1:100,]
+```
+
+##Get data 
+```{r}
+list_of_all_images<-paste0('/well/win-biobank/projects/imaging/data/data3/subjectsAll/',age_tab$id,'/T1/T1_vbm/T1_GM_to_template_GM_mod.nii.gz')
+sub.dat <- as.matrix(fast_read_imgs_mask(list_of_all_images,'/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+colnames(sub.dat) <- as.character(1:ncol(sub.dat))
+list_of_all_images<-paste0('/well/win-biobank/projects/imaging/data/data3/subjectsAll/',age_tab.test$id,'/T1/T1_vbm/T1_GM_to_template_GM_mod.nii.gz')
+sub.dat.test <- as.matrix(fast_read_imgs_mask(list_of_all_images,'/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+colnames(sub.dat.test) <- colnames(sub.dat)
+```
+
+## PMS
+Look at variance explained
+###Do selection with prior mu = 0
+Ridge
+```{r}
+set.seed(4)
+fit.ridge <- cv.glmnet(sub.dat,age_tab$age, alpha=0)
+beta <- coef(fit.ridge)
+beta_no_int <- beta[-1,]
+rank_beta.ridge <- beta_no_int[order(abs(beta_no_int), decreasing=TRUE)]
+```
+
+```{r}
+library(rrcov) #Package for robust PCA
+#Robust PCA
+set.seed(4)
+pca <- PcaHubert(sub.dat,kmax=100) #it only picks 10 PC ####Note that I need to change kmax to greater than 10
+#summary(pca) #look at the first PC that had cumulative variance of 90%
+#lambda <- pca$loadings[,54] %*% t(pca$loadings[,54]) 
+lambda <- pca$loadings %*% t(pca$loadings) 
+Omeg <- solve(sub.dat%*%lambda%*%t(sub.dat) + (1e-5)*diag(nrow(sub.dat))) #4x4 
+pre_beta_pms <- lambda%*%t(sub.dat)%*%Omeg #4 x 75
+beta_pms <- pre_beta_pms%*%age_tab$age
+rownames(beta_pms) <- colnames(sub.dat)
+rank_beta_pms <- beta_pms[order(abs(beta_pms), decreasing=TRUE),]
+pca.sum <- summary(pca)
+```
+Robust pca only allowed 53 PCs.... and variance explaied is 100%
+Let's pick PCs such that it takes at least 90% of variance, which is 36 PCs
+
+
+```{r}
+#PCA 
+set.seed(4)
+pca.normal <- prcomp(sub.dat)
+ind.touse <- min(which(cumsum(pca.normal$sdev^2)/sum(pca.normal$sdev^2) > 0.9)) #72
+#lambda.normal <- pca.normal$rotation[,ind.touse] %*% t(pca.normal$rotation[,ind.touse])
+lambda.normal <- pca.normal$rotation%*% t(pca.normal$rotation)
+Omeg <- solve(sub.dat%*%lambda.normal%*%t(sub.dat) + (1e-5)*diag(nrow(sub.dat))) #4x4 
+pre_beta_pms.normal <- lambda.normal%*%t(sub.dat)%*%Omeg #4 x 75
+beta_pms.normal <- pre_beta_pms.normal %*%age_tab$age
+rownames(beta_pms.normal) <- colnames(sub.dat)
+rank_beta_pms.normal <- beta_pms.normal[order(abs(beta_pms.normal), decreasing=TRUE),]
+plot(cumsum(pca.normal$sdev^2)/sum(pca.normal$sdev^2), type = 'b')
+min(which(cumsum(pca.normal$sdev^2)/sum(pca.normal$sdev^2) > 0.9)) #81
+```
+This PCA cumulative plot shows that we need n = 99 or 100, or something way larger than 10.
+Take 72 PCs then it explains 90% of variance explained
+
+#calculate rmse without lambda
+```{r}
+long.rmse <- function(ranked_coef, num.vox.vec){
+  train <- vector(mode = 'numeric')
+  test <- vector(mode = 'numeric')
+  for(i in num.vox.vec){
+    var.sel<- names(ranked_coef[1:i])
+    fit.ridge.pca <- cv.glmnet(sub.dat[,var.sel],age_tab$age, alpha=0)
+    beta <- coef(fit.ridge.pca)
+    train <- c(train,sqrt(mean((as.numeric(age_tab$age - cbind(1,sub.dat[,var.sel])%*%beta))^2)))
+    test <- c(test,sqrt(mean((as.numeric(age_tab.test$age - cbind(1,sub.dat.test[,var.sel])%*%beta))^2)))
+  }
+  out <- list()
+  out$train <- train
+  out$test <- test
+  return(out)
+}
+```
+
+```{r}
+num.vox.vec <- (1:100)*10
+
+res.ropca <- long.rmse(rank_beta_pms, num.vox.vec)
+res.pca <- long.rmse(rank_beta_pms.normal, num.vox.vec)
+res.ridge <- long.rmse(rank_beta.ridge, num.vox.vec)
+
+```
+```{r}
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res.ropca$train,res.pca$train,res.ridge$train))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(1,8) +
+  theme_minimal() +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+```
+
+```{r}
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res.ropca$test,res.pca$test,res.ridge$test))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(5.5,8) +
+  theme_minimal() +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+Note that there is a HUGE difference between using Robust PCA with 90% variance and 100% variance, although the difference is (54 vs 66 PCs)
+
+
+##With lambda prediction
+
+```{r}
+long.rmse.with.lambda <- function(ranked_coef, num.vox.vec, lambda){
+  train <- vector(mode = 'numeric')
+  test <- vector(mode = 'numeric')
+  for(i in num.vox.vec){
+    var.sel<- names(ranked_coef[1:i])
+    sub.dat.sub <- sub.dat
+    sub.dat.test.sub <- sub.dat.test
+    
+    mask.out <- setdiff(colnames(sub.dat),var.sel)
+    sub.dat.sub[,mask.out] <- 0
+    sub.dat.test.sub[,mask.out] <- 0
+    
+    Omeg <- solve(sub.dat.sub%*%lambda%*%t(sub.dat.sub) + (1e-5)*diag(nrow(sub.dat.sub)))
+    beta_pms <- lambda%*%t(sub.dat.sub)%*%Omeg%*%age_tab$age
+    intercept <- mean(age_tab$age) - colMeans(sub.dat.sub)%*%beta_pms 
+    
+    beta <- c(intercept,beta_pms)
+    train <- c(train,sqrt(mean((as.numeric(age_tab$age - cbind(1,sub.dat.sub)%*%beta))^2)))
+    test <- c(test,sqrt(mean((as.numeric(age_tab.test$age - cbind(1,sub.dat.test.sub)%*%beta))^2)))
+  }
+  out <- list()
+  out$train <- train
+  out$test <- test
+  return(out)
+}
+```
+
+```{r}
+num.vox.vec <- (1:100)*10
+
+res.lambda.ropca <- long.rmse.with.lambda(rank_beta_pms, num.vox.vec,lambda)
+res.lambda.pca <- long.rmse.with.lambda(rank_beta_pms.normal, num.vox.vec,lambda.normal)
+
+```
+
+```{r}
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res.lambda.ropca$train,res.lambda.pca$train,res.ridge$train))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(0,20) +
+  theme_minimal() +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+```
+```{r}
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res.lambda.ropca$test,res.lambda.pca$test,res.ridge$test))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(5.5,15) +
+  theme_minimal() +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+
+
+
+#26 Mar
+Let's map back the brain images
+```{r}
+#ROBPCA
+  #Full ROBPCA
+  mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz')
+  mask.temp[mask.temp!=0] <- abs(c(beta_pms))
+  mask.temp@datatype = 16
+  mask.temp@bitpix = 32
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sub150_robpca_pms'))
+
+  #1k ROB PCA
+  mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz')
+  thres.ind <- as.numeric(names(rank_beta_pms[1:1000]))
+  beta_pms.temp <- abs(c(beta_pms))
+  beta_pms.temp[-thres.ind] <- -1
+  mask.temp[mask.temp!=0] <- beta_pms.temp
+  mask.temp@datatype = 16
+  mask.temp@bitpix = 32
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sub150_robpca_pms_1000'))
+  
+#PCA
+  #Full PCA
+  mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz')
+  mask.temp[mask.temp!=0] <- abs(c(beta_pms.normal))
+  mask.temp@datatype = 16
+  mask.temp@bitpix = 32
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sub150_pca_pms'))
+
+  #1k PCA
+  mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz')
+  thres.ind <- as.numeric(names(rank_beta_pms.normal[1:1000]))
+  beta_pms.temp <- abs(c(beta_pms.normal))
+  beta_pms.temp[-thres.ind] <- -1
+  mask.temp[mask.temp!=0] <- beta_pms.temp
+  mask.temp@datatype = 16
+  mask.temp@bitpix = 32
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sub150_pca_pms_1000'))
+
+#Ridge
+  #Full Ridge
+  mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz')
+  mask.temp[mask.temp!=0] <- abs(c(beta_no_int))
+  mask.temp@datatype = 16
+  mask.temp@bitpix = 32
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sub150_ridge'))
+
+  #1k Ridge
+  mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz')
+  thres.ind <- as.numeric(names(rank_beta.ridge[1:1000]))
+  beta_pms.temp <- abs(c(beta_no_int))
+  beta_pms.temp[-thres.ind] <- -1
+  mask.temp[mask.temp!=0] <- beta_pms.temp
+  mask.temp@datatype = 16
+  mask.temp@bitpix = 32
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sub150_ridge_1000'))
+
+
+```
+
+PCA only detect the very edge of the image somehow. Look at 45,56,21
+Ridge is somewhat smooth, centred around the thalamas as usual
+ROBPCA is alright, less smooth than ridge somehow.
+
+Let's see if PCA is picking up noises from the edges. by looking at s.d. 
+sapply(df, sd)
+
+```{r}
+##Standard deviation
+#Load data, see `list_of_all_images` the chunk before this.
+sub.dat <- as.matrix(fast_read_imgs_mask(list_of_all_images,'/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+colnames(sub.dat) <- as.character(1:ncol(sub.dat))
+mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz')
+  mask.temp[mask.temp!=0] <- apply(sub.dat, 2, sd)
+  mask.temp@datatype = 16
+  mask.temp@bitpix = 32
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sub150_sd'))
+```
+
+s.d. does not reveal anything funny that would go with the PCA odd behaviour
+
+Assessing the odd behaviour
+```{r}
+plot(y=abs(c(beta_pms.normal)),x=1:15847, ylab ="Magnitude of PMS statistics",xlab = "Voxel number",main = "PMS: PCA")
+plot(y=abs(c(beta_pms)),x=1:15847, ylab ="Magnitude of PMS statistics",xlab = "Voxel number",main = "PMS: Robust PCA")
+plot(y=abs(c(beta_no_int)),x=1:15847, ylab ="Magnitude of Ridge",xlab = "Voxel number",main = "Ridge")
+
+```
+
+I will address the index of each voxel and match it with PCA
+```{r}
+mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz')
+mask.temp[mask.temp!=0] <- 1:sum(c(mask.temp!=0))
+mask.temp@datatype = 16
+mask.temp@bitpix = 32
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sub150_centre_mask_index'))
+```
+
+
+
+#3 apr
+##To do 
+1. Fix lambda, do subsetting instead of masking out
+2. Do cross validation on theta
+
+
+##Subsetting lambda
+```{r}
+long.rmse.with.lambda <- function(ranked_coef, num.vox.vec, lambda){
+  train <- vector(mode = 'numeric')
+  test <- vector(mode = 'numeric')
+  for(i in num.vox.vec){
+    var.sel<- names(ranked_coef[1:i])
+    sub.dat.sub <- sub.dat
+    sub.dat.test.sub <- sub.dat.test
+    
+    mask.out <- as.numeric(setdiff(colnames(sub.dat),var.sel))
+    #print(head(mask.out))
+    
+    sub.dat.sub <- sub.dat.sub[,-c(mask.out)] 
+    sub.dat.test.sub<- sub.dat.test.sub[,-c(mask.out)] 
+    
+    lambda.sub <- lambda[-c(mask.out),-c(mask.out)]
+    
+    Omeg <- solve(sub.dat.sub%*%lambda.sub%*%t(sub.dat.sub) + (1e-5)*diag(nrow(sub.dat.sub)))
+    beta_pms <- lambda.sub%*%t(sub.dat.sub)%*%Omeg%*%age_tab$age
+    intercept <- mean(age_tab$age) - colMeans(sub.dat.sub)%*%beta_pms 
+    
+    beta <- c(intercept,beta_pms)
+    train <- c(train,sqrt(mean((as.numeric(age_tab$age - cbind(1,sub.dat.sub)%*%beta))^2)))
+    test <- c(test,sqrt(mean((as.numeric(age_tab.test$age - cbind(1,sub.dat.test.sub)%*%beta))^2)))
+  }
+  out <- list()
+  out$train <- train
+  out$test <- test
+  return(out)
+}
+```
+
+```{r}
+num.vox.vec <- (1:100)*10
+
+res.lambda.ropca <- long.rmse.with.lambda(rank_beta_pms, num.vox.vec,lambda)
+res.lambda.pca <- long.rmse.with.lambda(rank_beta_pms.normal, num.vox.vec,lambda.normal)
+
+```
+
+```{r}
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res.lambda.ropca$train,res.lambda.pca$train,res.ridge$train))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(0,20) +
+  theme_minimal() +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+```
+```{r}
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res.lambda.ropca$test,res.lambda.pca$test,res.ridge$test))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(5.5,15) +
+  theme_minimal() +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+PCA gets even worse
+How is it that for robust pca, training rmse keeps increasing but test rmse keep decreasing
+
+##Cross validation
+
+Let's start with the simplest version:
+ - Keep train, test the same (ie 50-50)
+ - Only look at performance at 1000 selected variables
+ 
+###simplest version
+```{r}
+library(rrcov)
+simple.cv.robpca <- function(no.variable = 1000,theta.range = 10^seq(-9,1,1)){ #-9
+  train <- vector(mode = 'numeric')
+  test <- vector(mode = 'numeric')
+  pca <- PcaHubert(sub.dat,kmax=100) 
+  lambda <- pca$loadings %*% t(pca$loadings) 
+  for(theta in theta.range){
+    #doing PCA
+    Omeg <- solve(sub.dat%*%lambda%*%t(sub.dat) + (theta)*diag(nrow(sub.dat))) #4x4 
+    pre_beta_pms <- lambda%*%t(sub.dat)%*%Omeg #4 x 75
+    beta_pms <- pre_beta_pms%*%age_tab$age
+    rownames(beta_pms) <- colnames(sub.dat)
+    rank_beta_pms <- beta_pms[order(abs(beta_pms), decreasing=TRUE),]
+    
+    #Doing prediction
+    var.sel<- names(rank_beta_pms[1:no.variable])
+    sub.dat.sub <- sub.dat
+    sub.dat.test.sub <- sub.dat.test
+    
+    mask.out <- as.numeric(setdiff(colnames(sub.dat),var.sel))
+    #print(head(mask.out))
+    
+    sub.dat.sub <- sub.dat.sub[,-c(mask.out)] 
+    sub.dat.test.sub<- sub.dat.test.sub[,-c(mask.out)] 
+    
+    lambda.sub <- lambda[-c(mask.out),-c(mask.out)]
+    
+    Omeg <- solve(sub.dat.sub%*%lambda.sub%*%t(sub.dat.sub) + (theta)*diag(nrow(sub.dat.sub)))
+    beta_pms <- lambda.sub%*%t(sub.dat.sub)%*%Omeg%*%age_tab$age
+    intercept <- mean(age_tab$age) - colMeans(sub.dat.sub)%*%beta_pms 
+    
+    beta <- c(intercept,beta_pms)
+    train <- c(train,sqrt(mean((as.numeric(age_tab$age - cbind(1,sub.dat.sub)%*%beta))^2)))
+    test <- c(test,sqrt(mean((as.numeric(age_tab.test$age - cbind(1,sub.dat.test.sub)%*%beta))^2)))
+  }
+  out <- rbind(theta.range,train,test)
+  return(out)
+}
+```
+
+```{r}
+robpca.cv <- simple.cv.robpca()
+```
+Lowest theta is better, lowesr than this will lead to singularity
+
+```{r}
+simple.cv.pca <- function(no.variable = 1000,theta.range = 10^seq(-9,3,1)){
+  train <- vector(mode = 'numeric')
+  test <- vector(mode = 'numeric')
+  pca <-  prcomp(sub.dat)
+  lambda <- pca$rotation%*% t(pca$rotation)
+  for(theta in theta.range){
+    #doing PCA
+    Omeg <- solve(sub.dat%*%lambda%*%t(sub.dat) + (theta)*diag(nrow(sub.dat))) #4x4 
+    pre_beta_pms <- lambda%*%t(sub.dat)%*%Omeg #4 x 75
+    beta_pms <- pre_beta_pms%*%age_tab$age
+    rownames(beta_pms) <- colnames(sub.dat)
+    rank_beta_pms <- beta_pms[order(abs(beta_pms), decreasing=TRUE),]
+    
+    #Doing prediction
+    var.sel<- names(rank_beta_pms[1:no.variable])
+    sub.dat.sub <- sub.dat
+    sub.dat.test.sub <- sub.dat.test
+    
+    mask.out <- as.numeric(setdiff(colnames(sub.dat),var.sel))
+    #print(head(mask.out))
+    
+    sub.dat.sub <- sub.dat.sub[,-c(mask.out)] 
+    sub.dat.test.sub<- sub.dat.test.sub[,-c(mask.out)] 
+    
+    lambda.sub <- lambda[-c(mask.out),-c(mask.out)]
+    
+    Omeg <- solve(sub.dat.sub%*%lambda.sub%*%t(sub.dat.sub) + (theta)*diag(nrow(sub.dat.sub)))
+    beta_pms <- lambda.sub%*%t(sub.dat.sub)%*%Omeg%*%age_tab$age
+    intercept <- mean(age_tab$age) - colMeans(sub.dat.sub)%*%beta_pms 
+    
+    beta <- c(intercept,beta_pms)
+    train <- c(train,sqrt(mean((as.numeric(age_tab$age - cbind(1,sub.dat.sub)%*%beta))^2)))
+    test <- c(test,sqrt(mean((as.numeric(age_tab.test$age - cbind(1,sub.dat.test.sub)%*%beta))^2)))
+  }
+  out <- rbind(theta.range,train,test)
+  return(out)
+}
+```
+```{r}
+pca.cv <- simple.cv.pca() #theta = 10 is optimal
+```
+
+Now let's assess the outcome:
+```{r}
+long.rmse.with.lambda.theta <- function(lambda,theta,num.vox.vec){
+  Omeg <- solve(sub.dat%*%lambda%*%t(sub.dat) + (theta)*diag(nrow(sub.dat))) #4x4 
+  pre_beta_pms <- lambda%*%t(sub.dat)%*%Omeg #4 x 75
+  beta_pms <- pre_beta_pms%*%age_tab$age
+  rownames(beta_pms) <- colnames(sub.dat)
+  rank_beta_pms <- beta_pms[order(abs(beta_pms), decreasing=TRUE),]
+  train <- vector(mode = 'numeric')
+  test <- vector(mode = 'numeric')
+  for(i in num.vox.vec){
+    var.sel<- names(rank_beta_pms[1:i])
+    sub.dat.sub <- sub.dat
+    sub.dat.test.sub <- sub.dat.test
+    
+    mask.out <- as.numeric(setdiff(colnames(sub.dat),var.sel))
+    
+    sub.dat.sub <- sub.dat.sub[,-c(mask.out)] 
+    sub.dat.test.sub<- sub.dat.test.sub[,-c(mask.out)] 
+    
+    lambda.sub <- lambda[-c(mask.out),-c(mask.out)]
+    
+    Omeg <- solve(sub.dat.sub%*%lambda.sub%*%t(sub.dat.sub) + (theta)*diag(nrow(sub.dat.sub)))
+    beta_pms <- lambda.sub%*%t(sub.dat.sub)%*%Omeg%*%age_tab$age
+    intercept <- mean(age_tab$age) - colMeans(sub.dat.sub)%*%beta_pms 
+    
+    beta <- c(intercept,beta_pms)
+    train <- c(train,sqrt(mean((as.numeric(age_tab$age - cbind(1,sub.dat.sub)%*%beta))^2)))
+    test <- c(test,sqrt(mean((as.numeric(age_tab.test$age - cbind(1,sub.dat.test.sub)%*%beta))^2)))
+  }
+  out <- list()
+  out$train <- train
+  out$test <- test
+  return(out)
+}
+```
+
+```{r}
+#Get lambda and lambda.normal
+pca <- PcaHubert(sub.dat,kmax=100) 
+lambda <- pca$loadings %*% t(pca$loadings) 
+
+pca <-  prcomp(sub.dat)
+lambda.normal <- pca$rotation%*% t(pca$rotation)
+```
+
+
+```{r}
+num.vox.vec <- (1:100)*10
+
+res.lambda.ropca <- long.rmse.with.lambda.theta(lambda, robpca.cv[1,which.min(robpca.cv[3,])], num.vox.vec)
+res.lambda.pca <- long.rmse.with.lambda.theta(lambda.normal, pca.cv[1,which.min(pca.cv[3,])], num.vox.vec)
+
+```
+
+```{r}
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res.lambda.ropca$train,res.lambda.pca$train,res.ridge$train))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(0,10) +
+  theme_minimal() +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+```
+```{r}
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res.lambda.ropca$test,res.lambda.pca$test,res.ridge$test))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(5.5,10) +
+  theme_minimal() +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+#14 Apr
+Running 
+//apr14_cv_pms 53813310 ===> with res3 mask and saliency [failed to create viz due to out of memory but not sure where]
+
+```{r}
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/apr14_cv_pms.csv")
+```
+
+```{r}
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(res[1:3,])
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(0,15) +
+  theme_minimal() +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+```
+```{r}
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(as.data.frame(res[4:6,]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(4.5,15) +
+  theme_minimal() +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+
+
+#19 Apr
+//apr19_cv_pms 54561372 ===> centre mask, with 2k train/test
+```{r}
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/apr19_cv_pms.csv")
+```
+```{r}
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(res[1:3,])
+num.vox.vec <- (1:100)*10
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(2,13) +
+  theme_minimal() +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+```
+```{r}
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(as.data.frame(res[4:6,]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(4,12.5) +
+  theme_minimal() +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+looks alright
+
+I need to incorporate double tuning for screening and predictions
+//apr21_dcv_pms 54576737 ===> double cv
+```{r}
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/apr21_dcv_pms.csv")
+```
+```{r}
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(res[1:3,])
+num.vox.vec <- (1:100)*10
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(2,13) +
+  theme_minimal() +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+```
+```{r}
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(as.data.frame(res[4:6,]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(4,12.5) +
+  theme_minimal() +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+
+//apr21_dcv_pms  54587542 ==> added viz, let's see.
+
+#22 Apr
+Perhaps extend this further, let's say 4k subjects.
+
+see
+```{r}
+num.add <- 4000
+part_use<- (read.csv('/well/nichols/users/qcv214/bnn2/add_1_part_id_use_final.txt')$V1)[1:num.add] #This file has 4258 additional subjects
+list_of_all_images<-paste0('/well/win-biobank/projects/imaging/data/data3/subjectsAll/',part_use,'/T1/T1_vbm/T1_GM_to_template_GM_mod.nii.gz')
+res3.dat <- rbind(res3.dat,as.matrix(fast_read_imgs_mask(list_of_all_images,'/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz')))
+age_tab<- rbind(age_tab,(read_feather('/well/nichols/users/qcv214/bnn2/res3/age_add1.feather'))[1:num.add,]) #Need to fix this
+```
+
+##Testing more data
+###What is originally here, with loading current data
+```{r}
+part_list<-read.table('/well/nichols/users/qcv214/Placement_2/participant_list.txt', header = FALSE, sep = "", dec = ".") #4529 participants
+part_list$exist_vbm <- file.exists(paste0('/well/win-biobank/projects/imaging/data/data3/subjectsAll/',part_list[,1],'/T1/T1_vbm/T1_GM_to_template_GM_mod.nii.gz'))
+#These two are equal
+part_use<-part_list[part_list$exist_vbm==1,] #4262 participants left
+#part_use<-part_use[1:200,] #only take 200
+part_use<-part_use[1:4000,] #only take 4k
+
+agetab<-read.table(file = '/well/nichols/projects/UKB/SMS/ukb_latest-Age.tsv', sep = '\t', header = TRUE)
+age_tab<-as.data.frame(matrix(,nrow = length(part_use$V1),ncol = 2)) #id, age, number of masked voxels
+colnames(age_tab)[1:2]<-c('id','age')
+age_tab$id<-part_use$V1
+for(i in 1:length(part_use$V1)){
+  age_tab$age[i]<-agetab$X21003.2.0[agetab$eid_8107==sub(".", "",age_tab$id[i])]
+}
+#age_tab.test <- age_tab[101:200,]
+#age_tab <- age_tab[1:100,]
+age_tab.test <- age_tab[2001:4000,]
+age_tab <- age_tab[1:2000,]
+```
+### More data
+First needa check if their id overlap (don't want) //
+```{r} 
+age_tab2<-read_feather('/well/nichols/users/qcv214/bnn2/res3/age_add1.feather')
+#sum(age_tab$id %in% age_tab2$id) =0 ==> no overlap
+```
+
+Found that some of the data on age_add1 is no longer there, let's create a new one.
+```{r}
+part_list2 <- read.csv('/well/nichols/users/qcv214/bnn2/add_1_part_id_use_final.txt')$V1 #4258
+part_list2.exist_vbm <- file.exists(paste0('/well/win-biobank/projects/imaging/data/data3/subjectsAll/',part_list2,'/T1/T1_vbm/T1_GM_to_template_GM_mod.nii.gz')) #4257, only one person is missing
+part_use2 <-part_list2[part_list2.exist_vbm]
+part_use2 <- part_use2[1:4000]
+###
+age_tab2<-as.data.frame(matrix(,nrow = length(part_use2),ncol = 2)) #id, age, number of masked voxels
+colnames(age_tab2)[1:2]<-c('id','age')
+age_tab2$id<-part_use2
+for(i in 1:length(part_use2)){
+  age_tab2$age[i]<-agetab$X21003.2.0[agetab$eid_8107==sub(".", "",age_tab2$id[i])]
+}
+```
+Sanity check for completness of extraction
+`sum(c(is.na(age_tab2)))` = 0
+
+
+//apr22_dcv_pms  54664383 ==> added 4k more training, so 6k in total, note that num.vox.vec is changed to `(1:100)*100`
+
+#apr 23
+```{r}
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/apr23_dcv_pms.csv")
+```
+```{r}
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(res[1:3,])
+num.vox.vec <- (1:100)*100
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(2,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+```
+```{r}
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(as.data.frame(res[4:6,]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(4,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+#9 May
+
+We want to try incorportaing response into the projection matrix. There are options:
+1. Partial Least Squares
+2. Canonical Correlation Analysis (CCA)
+3. Supervised PCA 
+
+
+##Prepping data
+###Get the sub Mask
+```{r}
+mask_subcor<-oro.nifti::readNIfTI('/well/nichols/users/qcv214/PMS/mask_without_WM_and_stem_thrsholded.nii.gz')
+
+submask <-array(0,dim=dim(mask_subcor))
+submask[26:64,37:70,22:55] <- mask_subcor[26:64,37:70,22:55] 
+table(submask[submask!=0]) #1613 voxels in total
+length(submask[submask!=0]) #15,847 voxels
+
+# writeNIfTI(submask,'/well/nichols/users/qcv214/pms2/sub150_centre_mask') #/well/nichols/users/qcv214/pms2
+
+```
+
+###Get age response
+```{r}
+part_list<-read.table('/well/nichols/users/qcv214/Placement_2/participant_list.txt', header = FALSE, sep = "", dec = ".") #4529 participants
+part_list$exist_vbm <- file.exists(paste0('/well/win-biobank/projects/imaging/data/data3/subjectsAll/',part_list[,1],'/T1/T1_vbm/T1_GM_to_template_GM_mod.nii.gz'))
+#These two are equal
+part_use<-part_list[part_list$exist_vbm==1,] #4262 participants left
+part_use<-part_use[1:200,] #only take 100
+
+agetab<-read.table(file = '/well/nichols/projects/UKB/SMS/ukb_latest-Age.tsv', sep = '\t', header = TRUE)
+age_tab<-as.data.frame(matrix(,nrow = length(part_use$V1),ncol = 2)) #id, age, number of masked voxels
+colnames(age_tab)[1:2]<-c('id','age')
+age_tab$id<-part_use$V1
+for(i in 1:length(part_use$V1)){
+  age_tab$age[i]<-agetab$X21003.2.0[agetab$eid_8107==sub(".", "",age_tab$id[i])]
+}
+age_tab.test <- age_tab[101:200,]
+age_tab <- age_tab[1:100,]
+```
+
+###Get data 
+```{r}
+list_of_all_images<-paste0('/well/win-biobank/projects/imaging/data/data3/subjectsAll/',age_tab$id,'/T1/T1_vbm/T1_GM_to_template_GM_mod.nii.gz')
+sub.dat <- as.matrix(fast_read_imgs_mask(list_of_all_images,'/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+colnames(sub.dat) <- as.character(1:ncol(sub.dat))
+list_of_all_images<-paste0('/well/win-biobank/projects/imaging/data/data3/subjectsAll/',age_tab.test$id,'/T1/T1_vbm/T1_GM_to_template_GM_mod.nii.gz')
+sub.dat.test <- as.matrix(fast_read_imgs_mask(list_of_all_images,'/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+colnames(sub.dat.test) <- colnames(sub.dat)
+```
+
+
+##Let's try PLS
+
+
+```{r}
+library(pls)
+
+# Assuming 'X' is your predictor matrix and 'Y' is your response variable
+
+# Perform PLS
+pls_model <- plsr(age_tab$age ~ sub.dat)
+
+# Projection of X onto the first few PLS components
+scores <- scores(pls_model)
+
+# Projection matrix
+projection_matrix_pls <- loadings(pls_model) %*% t(loadings(pls_model)) #15847 x 15847
+
+#print(projection_matrix_pls)
+
+```
+
+
+
+
