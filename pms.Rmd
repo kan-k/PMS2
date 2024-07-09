@@ -1473,5 +1473,828 @@ projection_matrix_pls <- loadings(pls_model) %*% t(loadings(pls_model)) #15847 x
 ```
 
 
+Running
+//may9_dcv_pls_200 58015346 ==> 100 train subjects [super fast]
+may9_dcv_pls 58020343 ==>6k subjects
+
+
+##Result pls 200
+```{r}
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/may9_dcv_pls_200.csv")
+
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(res[1,])
+num.vox.vec <- (1:100)*100
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("PLS")
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(2,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+##########################################.      Test
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(as.data.frame(res[2,]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("PLS")
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(4,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+##Result pls 6k
+```{r}
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/may9_dcv_pls.csv")
+
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(res[1,])
+num.vox.vec <- (1:100)*100
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("PLS")
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(2,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+##########################################.      Test
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(as.data.frame(res[2,]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("PLS")
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(4,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+
+
+###Old results (6k test subjects)
+```{r}
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/apr23_dcv_pms.csv")
+```
+```{r}
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(res[1:3,])
+num.vox.vec <- (1:100)*100
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(2,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+```
+```{r}
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(as.data.frame(res[4:6,]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(4,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+Running
+//may9_dcv_spca 58149945
+
+##Result spca 6k
+```{r}
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/may9_dcv_spca.csv")
+
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(res[1,])
+num.vox.vec <- (1:100)*100
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("SPCA")
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(2,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+##########################################.      Test
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(as.data.frame(res[2,]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("SPCA")
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(4,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+#14 May
+
+Aggregate the result
+```{r}
+library(ggplot2)
+library(tidyr)
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/apr23_dcv_pms.csv")
+res2 <- read.csv("/well/nichols/users/qcv214/pms2/pile/may9_dcv_pls.csv")
+res3 <- read.csv("/well/nichols/users/qcv214/pms2/pile/may9_dcv_spca.csv")
+
+
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res[1:3,],res2[1,],res3[1,]))
+num.vox.vec <- (1:100)*100
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge','PLS','SPCA')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(2,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res[4:6,],res2[2,],res3[2,]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge','PLS','SPCA')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  ylim(4,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+Use ridge to make predictions to make all methods comparaable, this is a variable screening exercise, not prediction
+
+Running cv_pms2.R to obtain  ===> robca, pca, pls, spca for variable screening, then Ridge for prediction
+`may27_cv_pms`
+
+
+
+I keep running into problem. Here is a smaller version (500 train, 100 test) `cv_pms_600`
+```{r}
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/may27_cv_pms_600.csv")
+
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(res[1:5,])
+num.vox.vec <- (1:100)*100
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge','PLS','SPCA')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(2,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(as.data.frame(res[6:10,]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge','PLS','SPCA')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(0,50) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+
+
+
+
+
+may27_cv_pms 61402365 ==> 6k data 
+
+#2 June
+
+2 methods (SPCA) methods since last meeting
+- Fit Ridge on X,Y => Re-weight X => Screen out new X based on magnitude => Fit Robust PCA
+- Fit ridge to screen out => apply SPCA
+
+Let's try the first way on 4 test, 2 train?
+```{r}
+part_list<-read.table('/well/nichols/users/qcv214/Placement_2/participant_list.txt', header = FALSE, sep = "", dec = ".") #4529 participants
+part_list$exist_vbm <- file.exists(paste0('/well/win-biobank/projects/imaging/data/data3/subjectsAll/',part_list[,1],'/T1/T1_vbm/T1_GM_to_template_GM_mod.nii.gz'))
+#These two are equal
+part_use<-part_list[part_list$exist_vbm==1,] #4262 participants left
+part_use<-part_use[1:6,] #only take 200
+# part_use<-part_use[1:4000,] #only take 4k
+
+agetab<-read.table(file = '/well/nichols/projects/UKB/SMS/ukb_latest-Age.tsv', sep = '\t', header = TRUE)
+age_tab<-as.data.frame(matrix(,nrow = length(part_use$V1),ncol = 2)) #id, age, number of masked voxels
+colnames(age_tab)[1:2]<-c('id','age')
+age_tab$id<-part_use$V1
+for(i in 1:length(part_use$V1)){
+  age_tab$age[i]<-agetab$X21003.2.0[agetab$eid_8107==sub(".", "",age_tab$id[i])]
+}
+age_tab.test <- age_tab[5:6,]
+age_tab <- age_tab[1:4,]
+n.train <- nrow(age_tab)
+
+list_of_all_images<-paste0('/well/win-biobank/projects/imaging/data/data3/subjectsAll/',age_tab$id,'/T1/T1_vbm/T1_GM_to_template_GM_mod.nii.gz')
+sub.dat <- as.matrix(fast_read_imgs_mask(list_of_all_images,'/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+# sub.dat <- as.matrix(fast_read_imgs_mask(list_of_all_images,'/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz'))
+
+colnames(sub.dat) <- as.character(1:ncol(sub.dat))
+list_of_all_images<-paste0('/well/win-biobank/projects/imaging/data/data3/subjectsAll/',age_tab.test$id,'/T1/T1_vbm/T1_GM_to_template_GM_mod.nii.gz')
+sub.dat.test <- as.matrix(fast_read_imgs_mask(list_of_all_images,'/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+# sub.dat.test <- as.matrix(fast_read_imgs_mask(list_of_all_images,'/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz'))
+
+colnames(sub.dat.test) <- colnames(sub.dat)
+
+cv_model <- cv.glmnet(sub.dat, age_tab$age, alpha = 0, nfolds = 10)
+# Best lambda from cross-validation
+coefficients <- coef(cv_model, s = "lambda.min")  # Extract coefficients at best lambda
+weights <- abs(coefficients[-1,])  # Exclude intercept from weights (first row of coefficients)
+X_weighted <- scale(sub.dat) * sqrt(weights) #there are 192 NAs in scale(sub.dat) but i dont know where *I believe it's to do with the column being a constant
+
+#Question is do I rank the voxels by col mean or col var. I am guessing it's col var
+colvar <- apply(X_weighted,MARGIN = 2, var)
+
+rank_var.ridge <- colvar[order(colvar, decreasing=TRUE)]
+var.sel<- names(rank_var.ridge[1:round(length(colvar)*0.3)]) #take only 30% of voxel
+
+X_weighted_sel <- X_weighted[,var.sel]
+
+pca <- PcaHubert(X_weighted_sel,kmax=min(n.train, length(var.sel))) 
+lambda. <- pca$loadings %*% t(pca$loadings) 
+```
+
+Running
+`june2_cv_pms_ridgeSRPCA` from `cv_pms2_rsrpca` 61555120 ==> exceeded time limit??
+
+
+#5 june
+may27_cv_pms takes like 15-17 hours
+```{r}
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/may27_cv_pms.csv")
+
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(res[1:5,])
+num.vox.vec <- (1:100)*100
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge','PLS','SPCA')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(2,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(as.data.frame(res[6:10,]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge','PLS','SPCA')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(0,50) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+
+#9 June
+Let's try fast MCD method to derive a robust covariance matrix then construct PCA
+```{r}
+# Load the necessary libraries
+library(robustbase)
+library(stats)
+
+# Load and prepare your data
+data <- mtcars
+
+# Compute the MCD covariance matrix
+mcd_result <- covMcd(data)
+mcd_cov <- mcd_result$cov
+
+# Perform eigen decomposition on the covariance matrix
+eig_decomp <- eigen(mcd_cov)
+
+# Extract the eigenvectors
+eigenvectors <- eig_decomp$vectors
+
+# The eigenvectors form the projection matrix
+projection_matrix <- eigenvectors
+
+# Print the projection matrix
+print("Projection Matrix (Eigenvectors):")
+print(projection_matrix)
+
+# Center the data using the robust center
+data_centered <- scale(data, center = mcd_result$center, scale = FALSE)
+
+# Project the centered data onto the principal components
+pca_scores <- data_centered %*% projection_matrix
+
+# Print the first few principal component scores
+print("Principal Component Scores:")
+print(head(pca_scores))
+```
+
+Running 
+june9_cv_pms_ridgeSMCDPCA 62725139
+
+When I tried to run `june9_cv_pms_ridgeSMCDPCA_600`, I got this error from `covMcd(X_weighted_sel)` saying `Error in covMcd(X_weighted_sel) : n <= p -- you can't be serious!`.
+
+
+10/6/2024
+Tom's suggestion: use rank transofrmation (see Teams)
+So across subjects, for each voxel, apply this transformation to transform the data (to get rid of outliers), then apply PCA.
+
+
+
+
+#11 June
+trying ridge +SPCA or ridge + SRPCA
+```{r}
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/may27_cv_pms_600.csv")
+res2<- read.csv("/well/nichols/users/qcv214/pms2/pile/june11_cv_pms_ridgeSPCA_600.csv") #max 4700 variables
+res2<-  cbind(res2,matrix(data=NA,nrow=nrow(res2), ncol = (length(res)-length(res2))))
+colnames(res2) <- colnames(res)
+res3 <- read.csv("/well/nichols/users/qcv214/pms2/pile/june11_cv_pms_ridgeSRPCA_600.csv")
+res3<-  cbind(res3,matrix(data=NA,nrow=nrow(res3), ncol = (length(res)-length(res3))))
+colnames(res3) <- colnames(res)
+
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res[1:5,],res2[1,],res3[1,]))
+num.vox.vec <- (1:100)*100
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge','PLS','SPCA',"Ridge+SPCA","Ridge+SRPCA")
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(2,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res[6:10,],res2[2,],res3[2,]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c("RoPCA",'PCA','Ridge','PLS','SPCA',"Ridge+SPCA","Ridge+SRPCA")
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(0,50) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+
+##Quantile normalisation
+Correcting outlier in data across subjects for each voxels
+
+`bestNormalize` not available
+```{r}
+if (!require("pacman")) {install.packages("pacman");library(pacman)}
+p_load(bestNormalize)
+inorm <- function(x) {
+  orderNorm(x,warn=FALSE)$x.t * sd(x,na.rm=TRUE) + mean(x,na.rm=TRUE)
+}
+```
+
+
+```{r}
+# Quantile normalization function for a vector using inverse CDF of standard Gaussian
+quantile_normalize_vector <- function(x) {
+  # Remove NA values and get their ranks
+  na_idx <- is.na(x)
+  x_no_na <- x[!na_idx]
+  
+  # Compute the ranks
+  ranks <- rank(x_no_na, ties.method = "average")
+  
+  # Map ranks to uniform [0, 1] probabilities
+  n <- length(x_no_na)
+  uniform_probs <- (ranks - 0.5) / n
+  
+  # Apply the inverse CDF of the standard Gaussian distribution
+  normal_scores <- qnorm(uniform_probs)
+  
+  # Normalize to the original scale
+  x_normalized <- normal_scores * sd(x_no_na, na.rm = TRUE) + mean(x_no_na, na.rm = TRUE)
+  
+  # Reinsert NA values in the original positions
+  result <- x
+  result[!na_idx] <- x_normalized
+  
+  return(result)
+}
+
+# Sample data (vector)
+set.seed(123)
+data_vector <- runif(10)
+
+# Perform quantile normalization
+data_normalized <- quantile_normalize_vector(data_vector)
+
+# Print the original and normalized data
+print("Original Data:")
+print(data_vector)
+
+print("Quantile Normalized Data:")
+print(data_normalized)
+
+```
+I think the above is correct by inspect qqnorm of data_vector and data_normalized
+
+
+
+//june15_cv_pms_full.csv 64932719 => num vox = (1:50)*200, num samples = 2k train, 2k test.
+
+```{r}
+plot(res[1:3,])
+par("mar")
+```
+
+#19 june
+
+** I accidentally used num.vox.vec = (1:50)*200 for ridge but not other methods
+
+```{r}
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/june15_cv_pms_full.csv")
+
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(res[1:3,])
+num.vox.vec <- (1:100)*100
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA','Ridge','SPCA')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(2,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(as.data.frame(res[4:6,]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA','Ridge','SPCA')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(0,50) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+```{r}
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/june15_cv_pms_full.csv")
+colnames(res) <- NULL
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(c(res[1,seq(2,100,2)]), res[2,1:50],c(res[3,seq(2,100,2)])))
+num.vox.vec <- (1:50)*200
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA','Ridge','SPCA')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(2,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(c(res[4,seq(2,100,2)]), res[5,1:50],c(res[6,seq(2,100,2)])))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA','Ridge','SPCA')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(0,50) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+The jump is still there.
+
+Running 
+june19_cv_pms_full. 65002128 => fixing num.vox.vec and change cv.glmnet to glmnet
+
+```{r}
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/june19_cv_pms_full.csv")
+
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(res[1:3,])
+num.vox.vec <- (1:50)*200
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA','Ridge','SPCA')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(2,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(as.data.frame(res[4:6,]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA','Ridge','SPCA')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(0,50) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+This is totally weird. Something really happens at 2k variables
+
+#21 June
+##To do
+1. Observe the jump => I think it's when p >= n in ridge prediction. For 600 samples and 2k samples, this happens exactly wheb n=p, for 6k training, it happens at p = 5.5k 
+2. Do SPCA with 80% or 90% variance explained
+3. Perform smoothing prior to SPCA
+
+
+#2 july
+
+## PCA and SPCA at 80% and 90%
+Running 
+[failed] july2_cv_pms8090_full 152987  => first ran into OOM issue, soenow im assigning all variables to the same variable to avoid multiple storing
+//july2_cv_pms8090_full 236057
+## Smoothing 
+```{r}
+# Function to apply 3D smoothing using a manual convolution with averaging kernel
+smooth_3d_matrix_manual <- function(data) {
+  # Define a 3x3x3 averaging kernel
+  kernel <- array(1/27, dim = c(3, 3, 3))
+  
+  # Get the dimensions of the data
+  dims <- dim(data)
+  
+  # Pad the data with zeros on all sides
+  padded_data <- array(0, dim = dims + 2)
+  padded_data[2:(dims[1]+1), 2:(dims[2]+1), 2:(dims[3]+1)] <- data
+  
+  # Initialize the smoothed data array
+  smoothed_data <- array(0, dim = dims)
+  
+  # Apply the convolution manually
+  for (x in 2:(dims[1]+1)) {
+    for (y in 2:(dims[2]+1)) {
+      for (z in 2:(dims[3]+1)) {
+        # Extract the 3x3x3 neighborhood
+        neighborhood <- padded_data[(x-1):(x+1), (y-1):(y+1), (z-1):(z+1)]
+        
+        # Compute the mean of the neighborhood
+        smoothed_data[x-1, y-1, z-1] <- sum(neighborhood * kernel)
+      }
+    }
+  }
+  
+  return(smoothed_data)
+}
+
+# Example usage with a 3D matrix
+set.seed(123)
+data_3d <- array(rnorm(5 * 5 * 5), dim = c(5, 5, 5))
+
+# Apply the smoothing function
+smoothed_data_3d <- smooth_3d_matrix_manual(data_3d)
+
+# Print the original and smoothed data
+print("Original Data:")
+print(data_3d)
+
+print("Smoothed Data:")
+print(smoothed_data_3d)
+```
+
+
+
+#8 July
+
+##PCA 80 and 90
+```{r}
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/july2_cv_pms8090_full.csv")
+
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(res[1:4,])
+num.vox.vec <- (1:50)*200
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 80', 'PCA 90','SPCA 80','SPCA 90')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(2,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(as.data.frame(res[5:8,]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 80', 'PCA 90','SPCA 80','SPCA 90')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(0,50) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+Note that these methods don't do CV during predictions. 
+Observable increase in RMSE when p -> n 
+
+##Combine all results
+```{r}
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/june19_cv_pms_full.csv")
+res2<- read.csv("/well/nichols/users/qcv214/pms2/pile/july2_cv_pms8090_full.csv")
+res2<-  cbind(res2,matrix(data=NA,nrow=nrow(res2), ncol = (length(res)-length(res2))))
+colnames(res2) <- colnames(res)
+
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res[1:3,],res2[1:4,]))
+num.vox.vec <- (1:50)*200
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 100','Ridge','SPCA 100','PCA 80', 'PCA 90','SPCA 80','SPCA 90')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(2,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res[4:6,],res2[5:8,]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 100','Ridge','SPCA 100','PCA 80', 'PCA 90','SPCA 80','SPCA 90')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(0,50) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+
+
+
+
 
 
