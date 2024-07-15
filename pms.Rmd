@@ -2292,7 +2292,25 @@ ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color
   labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
 ```
 
+#9 July
+Tom suggests 2 packages for smoothing
+`mmand`  => package ‘mmand’ is not available for this version of R 
+`https://github.com/jonclayden/mmand` for examples
 
+and `fslr` (doing fsl in r) => package ‘fslr’ is not available for this version of R
+
+Maybe try another version of R?. Let me create a dummie file to run on the cluster. using `test_r.sh` and `code/test_r.R`
+
+```{r}
+install.packages("fslr")
+```
+
+Just realised that my data is stored in a 1d format, ie no 3D sense...
+Perhaps I can fast load the data into a vector, stack as a 2D matrix as already done. Then for each row, turn it back into a nifti image using template, apply smoothing, turn it back into a vector
+
+First need to check if vbm is already pre-smoothed tho... I think it's pre-smoothed. VBM involved smoothing techniques, and in `sample_brains/`, data also look smooth
+
+Also `PMS` for loading images + other basic libraries and `mmand` and `fslr` are not avail in the same version of R so I can't run!!
 
 
 
