@@ -1,0 +1,48 @@
+if (!require("pacman")) {install.packages("pacman");library(pacman)}
+# print(1)
+# p_load(BayesGPfit)
+# print(2)
+# p_load(PMS)
+# print(3)
+# p_load(oro.nifti)
+# print(4)
+# p_load(neurobase)
+# print(5)
+# p_load(feather)
+# print(6)
+# p_load(glmnet)
+# print(7)
+# p_load(fastBayesReg)
+# print(8)
+# p_load(truncnorm)
+# print(9)
+# p_load(nimble)
+# print(0)
+# p_load(extraDistr)
+# print(1)
+# p_load(rrcov)
+# print(2)
+# p_load(pls)
+print(3)
+p_load(mmand)
+print(4)
+p_load(fslr)
+print("done")
+
+
+x <- seq(0, 4*pi, pi*2)
+y1 <- cos(x) + runif(length(x),-0.2,0.2) *100
+y2 <- cos(x) + runif(length(x),-0.5,0.5) *100
+y3 <- cos(x) + runif(length(x),-0.9,0.9) *100
+
+# y <- matrix(c(y1,y2,y3),byrow=TRUE,nrow=3)
+#3rd dim, only 2 of them
+y <- array(c(y1,y2,y3,y3,y2), dim = c(3,3,2))
+y_smoothed <- gaussianSmooth(y, c(1,1,1))
+print("done x ")
+print(x)
+print("done y ")
+print(y)
+print("done y___")
+print(y_smoothed)
+print("done")
