@@ -2313,6 +2313,638 @@ First need to check if vbm is already pre-smoothed tho... I think it's pre-smoot
 Also `PMS` for loading images + other basic libraries and `mmand` and `fslr` are not avail in the same version of R so I can't run!!
 
 
+#16 July
+Let's try loading an old `mmand`
+
+##Note
+I ended up loading mmand locally, upload the package .tar.gz to the cluster and install it from there.
+```{r}
+packageurl <- "https://cran.r-project.org/src/contrib/Archive/mmand/mmand_1.6.1.tar.gz"
+install.packages(packageurl, repos=NULL, type="source")
+```
+```{r}
+require(remotes)
+install_version("mmand", version = "1.6.3", repos = "http://cran.us.r-project.org")
+```
+
+```{r}
+# Install devtools package if not already installed
+if (!requireNamespace("devtools", quietly = TRUE)) {
+  install.packages("devtools")
+}
+
+# Load devtools library
+library(devtools)
+```
+https://cran.r-project.org/src/contrib/Archive/mmand/mmand_1.6.2.tar.gz
+
+```{r}
+# Define the URL for the specific version of mmand
+url <- "https://cran.r-project.org/src/contrib/Archive/mmand/mmand_1.6.1.tar.gz"
+
+# Install the specific version from the URL
+install.packages(url, repos = NULL, type = "source")
+```
+```{r}
+# Replace 'path/to/mmand_1.6.2.tar.gz' with the actual path to the downloaded file
+local_file_path <- "/well/nichols/users/qcv214/pms2/package/mmand_1.6.2.tar.gz"
+install.packages(local_file_path, repos = NULL, type = "source")
+```
+
+
+##test mmand
+from file `test_r.R`
+```{r}
+x <- seq(0, 4*pi, pi*2)
+y1 <- cos(x) + runif(length(x),-0.2,0.2) *100
+y2 <- cos(x) + runif(length(x),-0.5,0.5) *100
+y3 <- cos(x) + runif(length(x),-0.9,0.9) *100
+
+# y <- matrix(c(y1,y2,y3),byrow=TRUE,nrow=3)
+#3rd dim, only 2 of them
+y <- array(c(y1,y2,y3,y3,y2), dim = c(3,3,2))
+y_smoothed <- gaussianSmooth(y, c(1,1,1))
+print("done x ")
+print(x)
+print("done y ")
+print(y)
+print("done y___")
+print(y_smoothed)
+print("done")
+```
+
+
+
+//july17_cv_pms8090_full_smooth. 1511044 (previous job got oom halfway, at 16gb)
+
+#20 July
+
+##Observe effect of smoothing 80 and 90 
+```{r}
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/july2_cv_pms8090_full.csv")
+res2<- read.csv("/well/nichols/users/qcv214/pms2/pile/july17_cv_pms8090_full_smooth.csv")
+res2<-  cbind(res2,matrix(data=NA,nrow=nrow(res2), ncol = (length(res)-length(res2))))
+colnames(res2) <- colnames(res)
+
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res[1:4,],res2[1:4,]))
+num.vox.vec <- (1:50)*200
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 80', 'PCA 90','SPCA 80','SPCA 90','Smooth_PCA 80', 'Smooth_PCA 90','Smooth_SPCA 80','Smooth_SPCA 90')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(2,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res[5:8,],res2[5:8,]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 80', 'PCA 90','SPCA 80','SPCA 90','Smooth_PCA 80', 'Smooth_PCA 90','Smooth_SPCA 80','Smooth_SPCA 90')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(0,50) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+
+##use Smoothed results
+```{r}
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/june19_cv_pms_full.csv")
+res2<- read.csv("/well/nichols/users/qcv214/pms2/pile/july17_cv_pms8090_full_smooth.csv")
+res2<-  cbind(res2,matrix(data=NA,nrow=nrow(res2), ncol = (length(res)-length(res2))))
+colnames(res2) <- colnames(res)
+
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res[1:3,],res2[1:4,]))
+num.vox.vec <- (1:50)*200
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 100','Ridge','SPCA 100','Smooth_PCA 80', 'Smooth_PCA 90','Smooth_SPCA 80','Smooth_SPCA 90')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(2,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res[4:6,],res2[5:8,]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 100','Ridge','SPCA 100','Smooth_PCA 80', 'Smooth_PCA 90','Smooth_SPCA 80','Smooth_SPCA 90')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(0,50) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+Smooth SPCA 90 is promising.
+
+Smoothing works. Now we should look at the selected voxels. Plot this.
+
+july20_cv_pms8090_full_smooth 1779108 (and viz july20)
+
+//smooth_brain_gen.R 1852500
+
+#22 July
+The smooth brains look decent. Sample 1 and 2 looks fairly different tho, i.e. entirely different hotspots
+
+##use Smoothed results
+```{r}
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/june19_cv_pms_full.csv")
+res2<- read.csv("/well/nichols/users/qcv214/pms2/pile/july20_cv_pms8090_full_smooth.csv")
+res2<-  cbind(res2,matrix(data=NA,nrow=nrow(res2), ncol = (length(res)-length(res2))))
+colnames(res2) <- colnames(res)
+
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res[1:3,],res2[1:5,]))
+num.vox.vec <- (1:50)*200
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 100','Ridge','SPCA 100','Smooth_PCA 80', 'Smooth_PCA 90','Smooth_SPCA 80','Smooth_SPCA 90','Smooth_Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(2,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res[4:6,],res2[6:10,]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 100','Ridge','SPCA 100','Smooth_PCA 80', 'Smooth_PCA 90','Smooth_SPCA 80','Smooth_SPCA 90','Smooth_Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(0,50) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+Note June 19 uses 8k data. Need to tune it to 4k
+
+//july22_cv_pms90_full 1939444[failed saved end result], 2026143 ==> has viz too
+
+
+##use Smoothed results
+```{r}
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/july22_cv_pms90_full.csv")
+res2<- read.csv("/well/nichols/users/qcv214/pms2/pile/july20_cv_pms8090_full_smooth.csv")
+res2<-  cbind(res2,matrix(data=NA,nrow=nrow(res2), ncol = (length(res)-length(res2))))
+colnames(res2) <- colnames(res)
+
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res[1:3,],res2[c(2,4,5),]))
+num.vox.vec <- (1:50)*200
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge', 'Smooth_PCA 90','Smooth_SPCA 90','Smooth_Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(2,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res[4:6,],res2[c(7,9,10),]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge', 'Smooth_PCA 90','Smooth_SPCA 90','Smooth_Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(0,50) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+#25 July
+Use ridge for SPCA ===> nope, my original result was already using Ridge.
+
+##To do
+Compare this to pms
+//july26_nbpms_full. 2575127 ===> failed to save pms.boot viz but everything else worked.
+
+
+#27 July
+
+##PMS
+```{r}
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/july22_cv_pms90_full.csv")
+res2<- read.csv("/well/nichols/users/qcv214/pms2/pile/july20_cv_pms8090_full_smooth.csv")
+res2<-  cbind(res2,matrix(data=NA,nrow=nrow(res2), ncol = (length(res)-length(res2))))
+colnames(res2) <- colnames(res)
+
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res[1:3,],res2[c(2,4,5),]))
+num.vox.vec <- (1:50)*200
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge', 'Smooth_PCA 90','Smooth_SPCA 90','Smooth_Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(2,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res[4:6,],res2[c(7,9,10),]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge', 'Smooth_PCA 90','Smooth_SPCA 90','Smooth_Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(0,50) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+```{r}
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/july22_cv_pms90_full.csv")
+res2<- read.csv("/well/nichols/users/qcv214/pms2/pile/july20_cv_pms8090_full_smooth.csv")
+res2<-  cbind(res2,matrix(data=NA,nrow=nrow(res2), ncol = (length(res)-length(res2))))
+colnames(res2) <- colnames(res)
+res3 <- read.csv("/well/nichols/users/qcv214/pms2/pile/july26_nbpms_full.csv")
+res3<-  cbind(res3,matrix(data=NA,nrow=nrow(res3), ncol = (length(res)-length(res3))))
+colnames(res3) <- colnames(res)
+
+library(ggplot2)
+library(tidyr)
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res[1:3,],res2[c(2,4,5),],res3[1:3, ]))
+num.vox.vec <- (1:50)*200
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge', 'Smooth_PCA 90','Smooth_SPCA 90','Smooth_Ridge','PMS','PMS_holp','PMS_boots')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(2,7) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Assuming resdat is your dataframe
+# Add a row identifier
+resdat <- as.data.frame(rbind(res[4:6,],res2[c(7,9,10),],res3[4:6, ]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge', 'Smooth_PCA 90','Smooth_SPCA 90','Smooth_Ridge','PMS','PMS_holp','PMS_boots')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+# Create the line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line() +
+  # scale_x_continuous(breaks = seq(0, max(as.numeric(resdat_long$column)), by = 100)) +
+  # ylim(0,50) +
+  theme_minimal() +
+  scale_x_continuous(breaks=seq(0, 10000, 1000))+
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+Bottom two lines are still ridge and smooth SPCA
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(tidyr)
+
+# Read data
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/july22_cv_pms90_full.csv")
+res2 <- read.csv("/well/nichols/users/qcv214/pms2/pile/july20_cv_pms8090_full_smooth.csv")
+res2 <-  cbind(res2, matrix(data=NA, nrow=nrow(res2), ncol = (length(res) - length(res2))))
+colnames(res2) <- colnames(res)
+res3 <- read.csv("/well/nichols/users/qcv214/pms2/pile/july26_nbpms_full.csv")
+res3 <-  cbind(res3, matrix(data=NA, nrow=nrow(res3), ncol = (length(res) - length(res3))))
+colnames(res3) <- colnames(res)
+
+# Define custom color palette
+custom_colors <- c("PCA 90" = "#E41A1C", "SPCA 90" = "#377EB8", "Ridge" = "#4DAF4A",
+                   "Smooth_PCA 90" = "#984EA3", "Smooth_SPCA 90" = "#FF7F00",
+                   "Smooth_Ridge" = "#FFFF33", "PMS" = "#A65628", 
+                   "PMS_holp" = "#F781BF", "PMS_boots" = "#999999")
+
+# First plot
+resdat <- as.data.frame(rbind(res[1:3,], res2[c(2, 4, 5),], res3[1:3, ]))
+num.vox.vec <- (1:50)*200
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge', 'Smooth_PCA 90','Smooth_SPCA 90','Smooth_Ridge','PMS','PMS_holp','PMS_boots')
+
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the first line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Second plot
+resdat <- as.data.frame(rbind(res[4:6,], res2[c(7, 9, 10),], res3[4:6, ]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge', 'Smooth_PCA 90','Smooth_SPCA 90','Smooth_Ridge','PMS','PMS_holp','PMS_boots')
+
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the second line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+#2 Aug
+
+i am starting to suspect if i Need to add mu to the data approx for PCA method in the lambda. If lambda is a proj matrix then its fine, but if its data approx then may need to add mu
+
+e.g. lambda.80 <- `pca$rotation[, 1:num_components.90]%*% t(pca$rotation[, 1:num_components.90])` become `lambda.80 <- pca$rotation[, 1:num_components.90]%*% t(pca$rotation[, 1:num_components.90])` + mu
+
+
+[failed, oom] aug2_mu_cv_pms90_full 3063946
+[failed oom] aug2_mu_cv_pms90_full_smooth 3063953
+
+[failed, solving error and mem] aug2_mu_cv_pms90_full 3445663=> test 40 slots
+[failed, solving error and mem] aug2_mu_cv_pms90_full_smooth 3445656 => test 40 slots
+
+
+#4 Aug
+
+##Metrics
+Let's look at the "relative importance index" as in PMS's paper
+
+###Test RRI 
+from GPT
+```{r}
+# Function to calculate the Relative Importance Index (RRI)
+rri <- function(method, mask, num.vox = 10000) {
+  # Rank the voxel values in descending order
+  ranked_indices <- order(method, decreasing = TRUE)
+  
+  # Select the top num.vox indices
+  top_voxels <- ranked_indices[1:num.vox]
+  
+  # Calculate the total number of voxels per region
+  region_voxel_counts <- as.data.frame(table(mask))
+  colnames(region_voxel_counts) <- c("Region", "Total_Voxels")
+  
+  # Calculate the number of selected top voxels per region
+  top_voxel_counts <- as.data.frame(table(mask[top_voxels]))
+  colnames(top_voxel_counts) <- c("Region", "Top_Voxels")
+  
+  # Merge the tables, ensuring all regions are included
+  merged_counts <- merge(region_voxel_counts, top_voxel_counts, by = "Region", all.x = TRUE)
+  merged_counts$Top_Voxels[is.na(merged_counts$Top_Voxels)] <- 0
+  
+  # Calculate the percentage of selected voxels per region
+  merged_counts$Pct_Top_Voxels <- merged_counts$Top_Voxels / sum(merged_counts$Top_Voxels)
+  
+  # Calculate the overall percentage of voxels per region
+  merged_counts$Pct_Total_Voxels <- merged_counts$Total_Voxels / sum(merged_counts$Total_Voxels)
+  
+  # Compute the Relative Importance Index (RRI)
+  merged_counts$RRI <- merged_counts$Pct_Top_Voxels / merged_counts$Pct_Total_Voxels
+  
+  # Return the RRI for each region
+  return(merged_counts[, c("Region", "RRI")])
+}
+
+# Example usage
+method <- c(10, 5, 3, 4, 2, 6, 7, 8, 19, 11)
+mask <- c(2, 2, 1, 1, 1, 3, 3, 3, 3, 3)
+num.vox <- 5
+
+rri(method, mask, num.vox)
+```
+I believe that this is correct. I have verified.
+
+####Plotting
+```{r}
+library(ggplot2)
+rri_result <- rri(method, mask, num.vox)
+
+# Convert Region to a factor to maintain order in the plot
+rri_result$Region <- factor(rri_result$Region, levels = rri_result$Region)
+
+# Create the bar plot with numerical values on top of each bar
+ggplot(rri_result, aes(x = Region, y = RRI)) +
+  geom_bar(stat = "identity", fill = "skyblue", color = "black") +
+  geom_text(aes(label = sprintf("%.2f", RRI)), 
+            vjust = -0.3, color = "black", size = 3.5) +
+  theme_minimal() +
+  labs(title = "Relative Importance Index of Each Region",
+       x = "Region",
+       y = "Relative Importance Index")
+```
+
+Define a function called `rri_plot`
+```{r}
+# Load necessary library
+library(ggplot2)
+
+# Function to create the RRI bar plot
+rri_plot <- function(rri_result, title_suffix) {
+  # Convert Region to a factor with numeric levels to maintain order in the plot
+  rri_result$Region <- factor(rri_result$Region, levels = sort(as.numeric(as.character(rri_result$Region))))
+  
+  # Create the title by concatenating the base title with the provided suffix
+  plot_title <- paste("Relative Importance Index of Each Region:", title_suffix)
+  
+  # Create the bar plot with numerical values on top of each bar
+  ggplot(rri_result, aes(x = Region, y = RRI)) +
+    geom_bar(stat = "identity", fill = "skyblue", color = "black") +
+    geom_text(aes(label = sprintf("%.2f", RRI)), 
+              vjust = -0.3, color = "black", size = 3.5) +
+    # geom_line() +
+    geom_hline(aes(yintercept = 1, color = "RRI = 1"), linetype = "dashed", size = 1) +
+    ylim(0,11) +
+    theme_minimal() +
+    labs(title = plot_title,
+         x = "Region",
+         y = "Relative Importance Index")
+}
+```
+
+###apply this to our saved images
+
+RRI of each method:
+```{r}
+#mask
+res3.mask <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz','/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz'))
+print(table(res3.mask)*100/length(res3.mask))
+#smooth SPCA90
+dat <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/smooth/july20_smooth_SPCA90.nii.gz','/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz'))
+rri_result <- rri(dat, res3.mask, num.vox = 10000)
+rri_plot(rri_result, "Smooth SPCA90")
+
+#smooth SPCA80
+dat <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/smooth/july20_smooth_SPCA80.nii.gz','/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz'))
+rri_result <- rri(dat, res3.mask, num.vox = 10000)
+rri_plot(rri_result, "Smooth SPCA80")
+
+#Ridge
+dat <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/july22_ridge.nii.gz','/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz'))
+rri_result <- rri(dat, res3.mask, num.vox = 10000)
+rri_plot(rri_result, "Ridge")
+
+#Smooth ridge
+dat <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/smooth/july20_smooth_ridge.nii.gz','/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz'))
+rri_result <- rri(dat, res3.mask, num.vox = 10000)
+rri_plot(rri_result, "Smooth Ridge")
+
+#PMS
+dat <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/july26_pms_hi.nii.gz','/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz'))
+rri_result <- rri(dat, res3.mask, num.vox = 10000)
+rri_plot(rri_result, "PMS")
+
+#HOLP
+dat <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/july26_pms_holp.nii.gz','/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz'))
+rri_result <- rri(dat, res3.mask, num.vox = 10000)
+rri_plot(rri_result, "HOLP")
+```
+
+We can see that PMS and HOLP have RRI not so far from 1 in each region, whereas other methods have high RRI
+Though HOLP shouldn't be using spatial info, so im not sure why it acts differently.
+
+
+
+#6 aug
+Assessing affect of re-centering in approx matrix on sub mask since full mask keeps going oom
+
+First time, both faile due to singularity occurred when solving. I have changed theta.range starting from -4 to -1
+//aug2_mu_cv_pms90_sub150  3710352
+//aug2_mu_cv_pms90_sub150_smooth 3710342
+
+
+##Adding mu
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(tidyr)
+
+# Read data
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/aug2_mu_cv_pms90_sub150.csv")
+res2 <- read.csv("/well/nichols/users/qcv214/pms2/pile/aug2_mu_cv_pms90_sub150_smooth.csv")
+res2 <-  cbind(res2, matrix(data=NA, nrow=nrow(res2), ncol = (length(res) - length(res2))))
+colnames(res2) <- colnames(res)
+
+# Define custom color palette
+# custom_colors <- c("PCA 90" = "#E41A1C", "SPCA 90" = "#377EB8", "Ridge" = "#4DAF4A",
+#                    "Smooth_PCA 90" = "#984EA3", "Smooth_SPCA 90" = "#FF7F00",
+#                    "Smooth_Ridge" = "#FFFF33", "PMS" = "#A65628", 
+#                    "PMS_holp" = "#F781BF", "PMS_boots" = "#999999")
+
+# First plot
+resdat <- as.data.frame(rbind(res[1:5,], res2[c(1:5),]))
+num.vox.vec <- (1:50)*100
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','PCA 90 mu','SPCA 90','SPCA 90 mu','Ridge', 'Smooth_PCA 90', 'Smooth_PCA 90 mu','Smooth_SPCA 90','Smooth_SPCA 90 mu','Smooth_Ridge')
+
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the first line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 5000, 1000)) +
+  # scale_color_manual(values = custom_colors) +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Second plot
+resdat <- as.data.frame(rbind(res[6:10,], res2[c(6:10),]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','PCA 90 mu','SPCA 90','SPCA 90 mu','Ridge', 'Smooth_PCA 90', 'Smooth_PCA 90 mu','Smooth_SPCA 90','Smooth_SPCA 90 mu','Smooth_Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the second line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 5000, 1000)) +
+  # scale_color_manual(values = custom_colors) +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+Mu and no mu almost no effect on screening
+
+Here SPCA mu is better than SPCA at first, but eventually converge.
+
+##Actually
+We don't need mu, and it's wrong
+
+Data approx matrix = Data*Projection matrix + mu 
+`https://stats.stackexchange.com/questions/229092/how-to-reverse-pca-and-reconstruct-original-variables-from-several-principal-com`
+
+but what we need is just the projection matrix, so we had been doing it right.
+
+
 
 
 
