@@ -2945,6 +2945,1071 @@ Data approx matrix = Data*Projection matrix + mu
 but what we need is just the projection matrix, so we had been doing it right.
 
 
+#8 Aug
+
+Check for PSD and symmetry of Projectio Matrix
+
+I want to assess the PD and symmetry property of the projection matrix of PCA (UUt) where U is the pc$rotation. Can you write me an assessment for two cases. The first case being X is a 10 x 15 matrix where each entry is iid uniform [0,1], apply PCA using prcomp, only keep rotation that explains 90% of cumulative variance, check if the matrix is symmetric and if it is positive definite or positive semi definite, do another case but using data from iid normal(0,1)
+```{r}
+# Load necessary library
+library(ggplot2)
+
+# Function to assess PD and symmetry properties of the projection matrix
+assess_projection_matrix <- function(X) {
+  # Apply PCA
+  pca_result <- prcomp(X, center = TRUE, scale. = TRUE)
+  # Calculate the cumulative variance explained
+  cum_variance <- cumsum(pca_result$sdev^2 / sum(pca_result$sdev^2))
+  # Keep components that explain 90% of the variance
+  num_components <- which(cum_variance >= 0.90)[1]
+  U <- pca_result$rotation[, 1:num_components]
+  # Construct the projection matrix
+  projection_matrix <- U %*% t(U)
+  # Check if the matrix is symmetric
+  is_symmetric <- all.equal(projection_matrix, t(projection_matrix))
+  # Check if the matrix is positive definite or positive semi-definite
+  eigenvalues <- round(eigen(projection_matrix)$values,8)
+  is_positive_definite <- all(eigenvalues > 0)
+  is_positive_semi_definite <- all(eigenvalues >= 0)
+  
+  # Print results
+  cat("Symmetric:", is_symmetric, "\n")
+  cat("Positive Definite:", is_positive_definite, "\n")
+  cat("Positive Semi-Definite:", is_positive_semi_definite, "\n")
+}
+
+# Case 1: Uniform [0,1] Distribution
+set.seed(123)
+X_uniform <- matrix(runif(10 * 15), nrow = 10, ncol = 15)
+cat("Case 1: Uniform [0,1] Distribution\n")
+assess_projection_matrix(X_uniform)
+
+# Case 2: Normal (0,1) Distribution
+set.seed(123)
+X_normal <- matrix(rnorm(10 * 15), nrow = 10, ncol = 15)
+cat("Case 2: Normal (0,1) Distribution\n")
+assess_projection_matrix(X_normal)
+```
+So, from manual inspection, UUT will have positive eigenvalues same as number of selected PCs, the rest will be 0 (or very near 0 by numerical computation). Making this projecting a PSD matrix.
+
+"Any covariance matrix is symmetric and positive semi-definite"
+
+Thus, our projection matrix must be a valid covariance!!
+
+#12 Aug
+
+Run stability (empirical)
+
+Look at simulation, maybe just sub.mask
+1. fix one region => with varying addition to observe sensitivity to SNR
+2. or impose a spatial decay ("Gaussian blob") => to add spatial complexity
+3. case of 2 disjoint regions?
+
+We will do both
+
+
+#Simulation study
+
+##Look at data
+Look at VBM summary of first two subjeccts
+```{r}
+part_list<-read.table('/well/nichols/users/qcv214/Placement_2/participant_list.txt', header = FALSE, sep = "", dec = ".") #4529 participants
+part_list$exist_vbm <- file.exists(paste0('/well/win-biobank/projects/imaging/data/data3/subjectsAll/',part_list[,1],'/T1/T1_vbm/T1_GM_to_template_GM_mod.nii.gz'))
+#These two are equal
+part_use<-part_list[part_list$exist_vbm==1,] #4262 participants left
+# part_use<-part_use[1:200,] #only take 200
+part_use<-part_use[1:4000,] #only take 4k
+
+agetab<-read.table(file = '/well/nichols/projects/UKB/SMS/ukb_latest-Age.tsv', sep = '\t', header = TRUE)
+age_tab<-as.data.frame(matrix(,nrow = length(part_use$V1),ncol = 2)) #id, age, number of masked voxels
+colnames(age_tab)[1:2]<-c('id','age')
+age_tab$id<-part_use$V1
+for(i in 1:length(part_use$V1)){
+  age_tab$age[i]<-agetab$X21003.2.0[agetab$eid_8107==sub(".", "",age_tab$id[i])]
+}
+# age_tab.test <- age_tab[101:200,]
+# age_tab <- age_tab[1:100,]
+age_tab <- age_tab[1:2,]
+
+list_of_all_images<-paste0('/well/win-biobank/projects/imaging/data/data3/subjectsAll/',age_tab$id,'/T1/T1_vbm/T1_GM_to_template_GM_mod.nii.gz')
+sub.dat <- as.matrix(fast_read_imgs_mask(list_of_all_images,'/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+colnames(sub.dat) <- as.character(1:ncol(sub.dat))
+```
+So sub.dat is 2 x 15k, look at row-wise summary
+
+```{r}
+for( i in 1:2){
+  print(summary(sub.dat[i,]))
+}
+```
+
+```{r}
+mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+
+hist(mask.vec)
+table(mask.vec)
+```
+
+By looking at FSLEYES and table(). I think I might use region 2, which is about 29% of the mask. Though it has very bad curvature.
+I think I will use region 4 + 15, basically the centre of the brain, about 12% of the mask
+
+```{r}
+table(mask.vec[mask.vec %in% c(4,15)])
+```
+
+
+// sim_aug13_str3_pms90.csv 4652610 [from sim_binmask_oms2_pca] =>
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(tidyr)
+
+# Read data
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/sim_aug13_str3_pms90.csv")
+# res2 <- read.csv("/well/nichols/users/qcv214/pms2/pile/aug2_mu_cv_pms90_sub150_smooth.csv")
+# res2 <-  cbind(res2, matrix(data=NA, nrow=nrow(res2), ncol = (length(res) - length(res2))))
+# colnames(res2) <- colnames(res)
+
+# Define custom color palette
+# custom_colors <- c("PCA 90" = "#E41A1C", "SPCA 90" = "#377EB8", "Ridge" = "#4DAF4A",
+#                    "Smooth_PCA 90" = "#984EA3", "Smooth_SPCA 90" = "#FF7F00",
+#                    "Smooth_Ridge" = "#FFFF33", "PMS" = "#A65628", 
+#                    "PMS_holp" = "#F781BF", "PMS_boots" = "#999999")
+
+# First plot
+# resdat <- as.data.frame(rbind(res[1:5,], res2[c(1:5),]))
+resdat <- as.data.frame(rbind(res[1:3,]))
+num.vox.vec <- (1:20)*100
+colnames(resdat) <- num.vox.vec
+# resdat$row_id <- c('PCA 90','PCA 90 mu','SPCA 90','SPCA 90 mu','Ridge', 'Smooth_PCA 90', 'Smooth_PCA 90 mu','Smooth_SPCA 90','Smooth_SPCA 90 mu','Smooth_Ridge')
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the first line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 2000, 500)) +
+  # scale_color_manual(values = custom_colors) +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Second plot
+# resdat <- as.data.frame(rbind(res[6:10,], res2[c(6:10),]))
+resdat <- as.data.frame(rbind(res[4:6,]))
+
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge')
+
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the second line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 2000, 500)) +
+  # scale_color_manual(values = custom_colors) +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+We can see that PCA and SPCA are better than ridge at first.
+I think overall, we still want p >> n. Perhaps decrease n to about 500?
+
+
+//sim_aug13_500_str3_ 4652784
+//sim_aug13_500_str3_.... smooth. 4652832
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(tidyr)
+
+# Read data
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/sim_aug13_500_str3_pms90.csv")
+res2 <- read.csv("/well/nichols/users/qcv214/pms2/pile/sim_aug13_500_str3_pms90_smooth.csv")
+# res2 <-  cbind(res2, matrix(data=NA, nrow=nrow(res2), ncol = (length(res) - length(res2))))
+colnames(res2) <- colnames(res)
+
+# Define custom color palette
+# custom_colors <- c("PCA 90" = "#E41A1C", "SPCA 90" = "#377EB8", "Ridge" = "#4DAF4A",
+#                    "Smooth_PCA 90" = "#984EA3", "Smooth_SPCA 90" = "#FF7F00",
+#                    "Smooth_Ridge" = "#FFFF33", "PMS" = "#A65628", 
+#                    "PMS_holp" = "#F781BF", "PMS_boots" = "#999999")
+
+# First plot
+resdat <- as.data.frame(rbind(res[1:3,], res2[c(1:3),]))
+# resdat <- as.data.frame(rbind(res[1:3,]))
+num.vox.vec <- (1:20)*100
+colnames(resdat) <- num.vox.vec
+# resdat$row_id <- c('PCA 90','PCA 90 mu','SPCA 90','SPCA 90 mu','Ridge', 'Smooth_PCA 90', 'Smooth_PCA 90 mu','Smooth_SPCA 90','Smooth_SPCA 90 mu','Smooth_Ridge')
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge','PCA 90 Smooth','SPCA 90 Smooth','Ridge Smooth')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the first line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 2000, 500)) +
+  # scale_color_manual(values = custom_colors) +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Second plot
+resdat <- as.data.frame(rbind(res[4:6,], res2[c(4:6),]))
+# resdat <- as.data.frame(rbind(res[4:6,]))
+
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge','PCA 90 Smooth','SPCA 90 Smooth','Ridge Smooth')
+
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the second line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 2000, 500)) +
+  # scale_color_manual(values = custom_colors) +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+Let's see if we can do double cv here... 
+
+I have a feeling that the saving of spca smooth is. wrong for viz
+
+Right now smoothing is done before defining output, meaning that smoothing makes voxels look even more similar, easier to predict
+However
+1. Should smoothing be done after defining response variable. This makes sense
+    //sim_aug13_500_2_str3_   4654478
+2. Should smoothing be done ONLY for screening but not prediction? This might make sense
+  sim_aug13_500_3_str3_  4777365
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(tidyr)
+
+# Read data
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/sim_aug13_500_str3_pms90_smooth.csv")
+res2 <- read.csv("/well/nichols/users/qcv214/pms2/pile/sim_aug13_500_2_str3_pms90_smooth.csv")
+# res2 <-  cbind(res2, matrix(data=NA, nrow=nrow(res2), ncol = (length(res) - length(res2))))
+colnames(res2) <- colnames(res)
+
+# Define custom color palette
+# custom_colors <- c("PCA 90" = "#E41A1C", "SPCA 90" = "#377EB8", "Ridge" = "#4DAF4A",
+#                    "Smooth_PCA 90" = "#984EA3", "Smooth_SPCA 90" = "#FF7F00",
+#                    "Smooth_Ridge" = "#FFFF33", "PMS" = "#A65628", 
+#                    "PMS_holp" = "#F781BF", "PMS_boots" = "#999999")
+
+# First plot
+resdat <- as.data.frame(rbind(res[1:3,], res2[c(1:3),]))
+# resdat <- as.data.frame(rbind(res[1:3,]))
+num.vox.vec <- (1:20)*100
+colnames(resdat) <- num.vox.vec
+# resdat$row_id <- c('PCA 90','PCA 90 mu','SPCA 90','SPCA 90 mu','Ridge', 'Smooth_PCA 90', 'Smooth_PCA 90 mu','Smooth_SPCA 90','Smooth_SPCA 90 mu','Smooth_Ridge')
+resdat$row_id <- c('PCA 90 Smooth','SPCA 90 Smooth','Ridge Smooth','PCA 90 Smooth2','SPCA 90 Smooth2','Ridge Smooth2')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the first line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 2000, 500)) +
+  # scale_color_manual(values = custom_colors) +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Second plot
+resdat <- as.data.frame(rbind(res[4:6,], res2[c(4:6),]))
+# resdat <- as.data.frame(rbind(res[4:6,]))
+
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90 Smooth','SPCA 90 Smooth','Ridge Smooth','PCA 90 Smooth2','SPCA 90 Smooth2','Ridge Smooth2')
+
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the second line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 2000, 500)) +
+  # scale_color_manual(values = custom_colors) +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(tidyr)
+
+# Read data
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/sim_aug13_500_str3_pms90.csv")
+res2 <- read.csv("/well/nichols/users/qcv214/pms2/pile/sim_aug13_500_3_str3_pms90_smooth.csv")
+# res2 <-  cbind(res2, matrix(data=NA, nrow=nrow(res2), ncol = (length(res) - length(res2))))
+colnames(res2) <- colnames(res)
+
+# Define custom color palette
+# custom_colors <- c("PCA 90" = "#E41A1C", "SPCA 90" = "#377EB8", "Ridge" = "#4DAF4A",
+#                    "Smooth_PCA 90" = "#984EA3", "Smooth_SPCA 90" = "#FF7F00",
+#                    "Smooth_Ridge" = "#FFFF33", "PMS" = "#A65628", 
+#                    "PMS_holp" = "#F781BF", "PMS_boots" = "#999999")
+
+# First plot
+resdat <- as.data.frame(rbind(res[1:3,], res2[c(1:3),]))
+# resdat <- as.data.frame(rbind(res[1:3,]))
+num.vox.vec <- (1:20)*100
+colnames(resdat) <- num.vox.vec
+# resdat$row_id <- c('PCA 90','PCA 90 mu','SPCA 90','SPCA 90 mu','Ridge', 'Smooth_PCA 90', 'Smooth_PCA 90 mu','Smooth_SPCA 90','Smooth_SPCA 90 mu','Smooth_Ridge')
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge','PCA 90 Smooth3','SPCA 90 Smooth3','Ridge Smooth3')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the first line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 2000, 500)) +
+  # scale_color_manual(values = custom_colors) +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Second plot
+resdat <- as.data.frame(rbind(res[4:6,], res2[c(4:6),]))
+# resdat <- as.data.frame(rbind(res[4:6,]))
+
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge','PCA 90 Smooth','SPCA 90 Smooth','Ridge Smooth')
+
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the second line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 2000, 500)) +
+  # scale_color_manual(values = custom_colors) +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+SPCA 90 smooth3 is good
+
+I will re-run all the simulation results but with 4k voxels and viz
+
+//sim_aug14_500_3_str smooth 4852824
+//sim_aug14_500_str 4903912
+//sim_aug14_500_2_str smooth 4903911
+sim_aug14_500_str nbpms 4904081
+Currently the viz of 2-3 smooths are the same.... they SHOULD be the same. Only difference is theta from cross-validation
+
+#15 Aug
+
+##Simulation results
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(tidyr)
+
+# Read data
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/sim_aug14_500_str3_pms90.csv")
+res2 <- read.csv("/well/nichols/users/qcv214/pms2/pile/sim_aug14_500_2_str3_pms90_smooth.csv")
+# res2 <-  cbind(res2, matrix(data=NA, nrow=nrow(res2), ncol = (length(res) - length(res2))))
+colnames(res2) <- colnames(res)
+res3 <- (read.csv("/well/nichols/users/qcv214/pms2/pile/sim_aug14_500_3_str3_pms90_smooth.csv"))
+# res3 <-  cbind(res3, matrix(data=NA, nrow=nrow(res3), ncol = (length(res) - length(res3))))
+colnames(res3) <- colnames(res)
+
+# Define custom color palette
+custom_colors <- c("PCA 90" = "#E41A1C", "SPCA 90" = "#377EB8", "Ridge" = "#4DAF4A",
+                   "Smooth_PCA 90" = "#984EA3", "Smooth_SPCA 90" = "#FF7F00",
+                   "Smooth_Ridge" = "#FFFF33", "3 Smooth_PCA 90" = "#A65628", 
+                   "3 Smooth_SPCA 90" = "#F781BF", "3 Smooth_Ridge" = "#999999")
+
+# First plot
+resdat <- as.data.frame(rbind(res[1:3,], res2[1:3,], res3[1:3, ]))
+num.vox.vec <- (1:40)*100
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge', 'Smooth_PCA 90','Smooth_SPCA 90','Smooth_Ridge', '3 Smooth_PCA 90','3 Smooth_SPCA 90','3 Smooth_Ridge')
+
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the first line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Second plot
+resdat <- as.data.frame(rbind(res[4:6,], res2[c(4:6),], res3[4:6, ]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge', 'Smooth_PCA 90','Smooth_SPCA 90','Smooth_Ridge', '3 Smooth_PCA 90','3 Smooth_SPCA 90','3 Smooth_Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the second line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+
+##with pms
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(tidyr)
+
+# Read data
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/sim_aug14_500_str3_pms90.csv")
+res2 <- read.csv("/well/nichols/users/qcv214/pms2/pile/sim_aug14_500_str3_nbpms.csv")
+# res2 <-  cbind(res2, matrix(data=NA, nrow=nrow(res2), ncol = (length(res) - length(res2))))
+colnames(res2) <- colnames(res)
+res3 <- (read.csv("/well/nichols/users/qcv214/pms2/pile/sim_aug14_500_3_str3_pms90_smooth.csv"))
+# res3 <-  cbind(res3, matrix(data=NA, nrow=nrow(res3), ncol = (length(res) - length(res3))))
+colnames(res3) <- colnames(res)
+
+# Define custom color palette
+custom_colors <- c("PCA 90" = "#E41A1C", "SPCA 90" = "#377EB8", "Ridge" = "#4DAF4A",
+                   "PMS" = "#984EA3", "HOLP" = "#FF7F00",
+                   "PMS_rob" = "#FFFF33", "3 Smooth_PCA 90" = "#A65628", 
+                   "3 Smooth_SPCA 90" = "#F781BF", "3 Smooth_Ridge" = "#999999")
+
+# First plot
+resdat <- as.data.frame(rbind(res[1:3,], res2[1:3,], res3[1:3, ]))
+num.vox.vec <- (1:40)*100
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge', 'PMS','HOLP','PMS_rob', '3 Smooth_PCA 90','3 Smooth_SPCA 90','3 Smooth_Ridge')
+
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the first line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Second plot
+resdat <- as.data.frame(rbind(res[4:6,], res2[c(4:6),], res3[4:6, ]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge', 'PMS','HOLP','PMS_rob', '3 Smooth_PCA 90','3 Smooth_SPCA 90','3 Smooth_Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the second line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  ylim(20,75) +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+## For 2nd Simulation Disjoint signal areas. 
+I will use area 4 (centre-left) and 19 (bottom-right)
+Everything is stored in `sim_dbmask.R` 
+//... aug15_500_dbmask* 4911635
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(tidyr)
+# Read data
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/sim_aug15_500_dbmask_str3_pms90.csv")
+res2 <- read.csv("/well/nichols/users/qcv214/pms2/pile/sim_aug15_500_dbmask_str3_nbpms.csv")
+# res2 <-  cbind(res2, matrix(data=NA, nrow=nrow(res2), ncol = (length(res) - length(res2))))
+colnames(res2) <- colnames(res)
+res3 <- (read.csv("/well/nichols/users/qcv214/pms2/pile/sim_aug15_500_dbmask_3_str3_pms90_smooth.csv"))
+# res3 <-  cbind(res3, matrix(data=NA, nrow=nrow(res3), ncol = (length(res) - length(res3))))
+colnames(res3) <- colnames(res)
+
+# Define custom color palette
+custom_colors <- c("PCA 90" = "#E41A1C", "SPCA 90" = "#377EB8", "Ridge" = "#4DAF4A",
+                   "PMS" = "#984EA3", "HOLP" = "#FF7F00",
+                   "PMS_rob" = "#FFFF33", "3 Smooth_PCA 90" = "#A65628", 
+                   "3 Smooth_SPCA 90" = "#F781BF", "3 Smooth_Ridge" = "#999999")
+
+# First plot
+resdat <- as.data.frame(rbind(res[1:3,], res2[1:3,], res3[1:3, ]))
+num.vox.vec <- (1:40)*100
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge', 'PMS','HOLP','PMS_rob', '3 Smooth_PCA 90','3 Smooth_SPCA 90','3 Smooth_Ridge')
+
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the first line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Second plot
+resdat <- as.data.frame(rbind(res[4:6,], res2[c(4:6),], res3[4:6, ]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge', 'PMS','HOLP','PMS_rob', '3 Smooth_PCA 90','3 Smooth_SPCA 90','3 Smooth_Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the second line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  ylim(20,75) +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+For this one, smoothing made everything worse
+SPCA, PCA then PMS were the best respectively
+
+But looking at viz, somehow HOLP and PMS did get all screening right.
+
+***I think what to assess in Simulation is NOT predictive accuracy, but rather the selection.
+
+##For 3rd Simulation: Gaussian blob
+```{r}
+library(oro.nifti)  # Ensure you have the oro.nifti package installed to handle NIfTI files
+
+for(signal_strength in c(0,0.5,1,2,3,5)){
+
+# Step 1: Load the mask and combine regions 4 and 15
+res3_mask <- oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz')
+
+combined_region <- (res3_mask == 4) | (res3_mask == 15)
+
+# Step 2: Calculate the center of mass for the combined region
+region_coords <- which(combined_region, arr.ind = TRUE)
+center_of_mass <- colMeans(region_coords)
+
+# Step 3: Generate the Gaussian blob centered at the center_of_mass
+# Define the standard deviation (spread) of the Gaussian
+sigma <- 10  # Adjust this value based on the size of your ROI
+# signal_strength <- 3  # Define a scaling factor to increase the signal strength
+
+# Create a 3D array to hold the Gaussian blob
+gaussian_blob <- array(0, dim = dim(res3_mask))
+
+# Populate the Gaussian blob
+for (i in 1:nrow(region_coords)) {
+  coord <- region_coords[i, ]
+  distance_sq <- sum((coord - center_of_mass)^2)
+  gaussian_blob[coord[1], coord[2], coord[3]] <- signal_strength *exp(-distance_sq*10 / (2 * sigma^2))
+}
+
+# Step 4: Apply the Gaussian blob to the combined region
+signal_mask <- combined_region * gaussian_blob
+
+# Optional: Add the signal to the original mask or save it
+res3_mask <- res3_mask * 0  # Start with a blank mask
+res3_mask[combined_region] <- signal_mask[combined_region]
+
+res3_mask@datatype = 16
+res3_mask@bitpix = 32
+writeNIfTI(res3_mask,paste0("/well/nichols/users/qcv214/pms2/viz/sim/res3_4n15_signal",signal_strength,"_gaussian_blob.nii.gz"))
+}
+```
+
+This current implementation looks good, according to visualisation. 
+
+Everything is stored in `sim_gaussmask.R` 
+//... aug15_500_gaussmask* 4912481 ==> I think it's wrong. The addition of signal seems wrong. I will correct in `sim_gaussmask2.R`
+
+###Correction
+I have decided to generate a visualisation of voxel ranking with image files `_rank_`, saved in 
+
+sim_binmask2.R. 4916105
+sim_dbmask2.R. 4921442
+sim_gaussmask2.R 4912985
+
+###Gaussian blob
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(tidyr)
+# Read data
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/sim_aug15_500_gaussmask_str3_pms90.csv")
+res2 <- read.csv("/well/nichols/users/qcv214/pms2/pile/sim_aug15_500_gaussmask_str3_nbpms.csv")
+# res2 <-  cbind(res2, matrix(data=NA, nrow=nrow(res2), ncol = (length(res) - length(res2))))
+colnames(res2) <- colnames(res)
+res3 <- (read.csv("/well/nichols/users/qcv214/pms2/pile/sim_aug15_500_gaussmask_3_str3_pms90_smooth.csv"))
+# res3 <-  cbind(res3, matrix(data=NA, nrow=nrow(res3), ncol = (length(res) - length(res3))))
+colnames(res3) <- colnames(res)
+
+# Define custom color palette
+custom_colors <- c("PCA 90" = "#E41A1C", "SPCA 90" = "#377EB8", "Ridge" = "#4DAF4A",
+                   "PMS" = "#984EA3", "HOLP" = "#FF7F00",
+                   "PMS_rob" = "#FFFF33", "3 Smooth_PCA 90" = "#A65628", 
+                   "3 Smooth_SPCA 90" = "#F781BF", "3 Smooth_Ridge" = "#999999")
+
+# First plot
+resdat <- as.data.frame(rbind(res[1:3,], res2[1:3,], res3[1:3, ]))
+num.vox.vec <- (1:40)*100
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge', 'PMS','HOLP','PMS_rob', '3 Smooth_PCA 90','3 Smooth_SPCA 90','3 Smooth_Ridge')
+
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the first line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Second plot
+resdat <- as.data.frame(rbind(res[4:6,], res2[c(4:6),], res3[4:6, ]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge', 'PMS','HOLP','PMS_rob', '3 Smooth_PCA 90','3 Smooth_SPCA 90','3 Smooth_Ridge')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the second line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  ylim(20,75) +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+PMS and SPCA 90 are the best methods, need to judge from viz, but I bet PMS is better
+
+#17 Aug
+
+##4th simulation method: sparse
+One other test method is to induce a random signal at every 10th
+`sim_sparsemask2.R`  5766633 =>aug15
+##Result analysis
+
+
+(non-predictive) Metrics:
+
+- `True % overlap = (TP)/(TP+FN)`
+- `FPR = FP/(FP+TN)`. false positive rate (FPR) is the number of people who do not have the disease but are identified as having the disease (all FPs), divided by the total number of people who do not have the disease (includes all FPs and TNs).
+    => note that our context is not voxel significance, but rather ranking, so FPR might not be needed
+- `FDR = FP/(FP+TP)`.  false discovery rate (FDR) is the number of people who do not have the disease but are identified as having the disease (all FPs), divided by the total number of people who are identified as having the disease (includes all FPs and TPs).
+- `ROC, AUC`?
+
+1. Sensitivity => varying signal strength and evaluate the metrics, we can plot the graph for each method.
+  Problem is we have too many methods and 3 metrics
+
+2. Stability => either 1) use different subset of training, but our sample is already small. or 2) add random noise into some subjects 
+  => I think these are two separate problems. 1) assess using smaller sample sizes, 2) assess nosiy data
+  => for 1), we can do bootstrapping (sampling with replacement) which is valid
+     for 2), we can do Noise simulation (varying strength of noise 0%, 5%, 10%) to assess robustness
+   
+
+###Sensitivity
+1. Signal = 1, signal = 0.5, signal = 0
+
+all is aug17
+//`sim_gaussmask_sens.R` 5935510
+//`sim_dbmask_sens.R` 5935504
+//`sim_binmask_sens.R` 5935538    
+//`sim_sparsemask_sens.R` 5935519
+
+####Evaluation
+```{r}
+accuracy_cal <- function(rank.vec, mask.signal) {
+  # Determine the number of top indices to consider
+  n <- length(mask.signal)
+  
+  # Take the top n indices from rank.vec
+  top_n <- rank.vec[1:n]
+  
+  # Compute True Positives (TP)
+  TP <- length(intersect(top_n, mask.signal))
+  
+  # Compute Overlap as the percentage of true positives
+  overlap <- round(TP * 100 / n, 3)
+  
+  # Compute False Positives (FP)
+  FP <- length(setdiff(top_n, mask.signal))
+  
+  # Compute False Negatives (FN)
+  FN <- length(setdiff(mask.signal, top_n))
+  
+  # Compute False Positive Rate (FPR)
+  total_non_signal <- length(rank.vec) - n
+  FPR <- round(FP*100 / total_non_signal, 3)
+  
+  # Compute False Discovery Rate (FDR)
+  FDR <- round(FP*100 / (FP + TP), 3)
+  
+  # Return the results as a named list
+  return(list(
+    overlap = overlap,
+    FPR = FPR,
+    FDR = FDR
+  ))
+}
+
+```
+
+#####Test
+```{r}
+#Binmask
+rank.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_binmask_3_rank_str3_SPCA90_smooth.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+mask.index <- (mask.vec %in% c(4,15))
+mask.signal <- which(mask.index)
+
+accuracy_cal(rank.vec = rank.vec, mask.signal = mask.signal)
+
+#dbmask
+rank.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_dbmask_3_rank_str3_SPCA90_smooth.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+mask.index <- (mask.vec %in% c(4,19))
+mask.signal <- which(mask.index)
+
+accuracy_cal(rank.vec = rank.vec, mask.signal = mask.signal)
+
+#Gauss
+
+rank.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_gaussmask_3_rank_str3_SPCA90_smooth.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+mask.index <- (mask.vec %in% c(4,15))
+mask.signal <- which(mask.index)
+
+accuracy_cal(rank.vec = rank.vec, mask.signal = mask.signal)
+
+#sparse mask
+rank.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_sparsemask_3_rank_str3_SPCA90_smooth.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+mask.signal <- seq(1,length(rank.vec), 10) #signal every 10th voxel
+
+accuracy_cal(rank.vec = rank.vec, mask.signal = mask.signal)
+
+#
+```
+
+I want this but for 
+
+```{r}
+# Define the parameters
+signal_types <- c("binmask", "dbmask", "gaussmask", "sparsemask")
+methods <- c("PCA90", "SPCA90", "PCA90_smooth", "SPCA90_smooth", "ridge", "pmshi", "holp")
+signal_strengths <- c(5,3,2, 1, 0.5, 0)
+base_path <- "/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_"
+
+# Initialize a data frame to store the results
+results <- data.frame(
+  SignalType = character(),
+  Method = character(),
+  SignalStrength = numeric(),
+  Overlap = numeric(),
+  FPR = numeric(),
+  FDR = numeric(),
+  stringsAsFactors = FALSE
+)
+```
+
+```{r}
+for (a in signal_types) {
+  for (b in methods) {
+    for (c in signal_strengths) {
+      # Determine (d) based on the method
+      if (grepl("_smooth$", b)) {
+        d <- "3_"
+      } else {
+        d <- ""
+      }
+
+      # Construct the file path
+      file_path <- paste0(base_path, a, "_", d, "rank_str", c, "_", b, ".nii.gz")
+
+      # Load the rank vector
+      rank.vec <- c(fast_read_imgs_mask(file_path, '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+      rank.vec <- order(rank.vec, decreasing = TRUE)
+      # Define the mask.signal based on signal type
+      if (a == "binmask") {
+        mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.index <- (mask.vec %in% c(4, 15))
+        mask.signal <- which(mask.index)
+      } else if (a == "dbmask") {
+        mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.index <- (mask.vec %in% c(4, 19))
+        mask.signal <- which(mask.index)
+      } else if (a == "gaussmask") {
+        mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.index <- (mask.vec %in% c(4, 15))
+        mask.signal <- which(mask.index)
+      } else if (a == "sparsemask") {
+        mask.signal <- seq(1, length(rank.vec), 10) # Signal every 10th voxel
+      }
+
+      # Compute accuracy metrics
+      metrics <- accuracy_cal(rank.vec = rank.vec, mask.signal = mask.signal)
+
+      # Store the results in the data frame
+      results <- rbind(results, data.frame(
+        SignalType = a,
+        Method = b,
+        SignalStrength = c,
+        Overlap = metrics$overlap,
+        FPR = metrics$FPR,
+        FDR = metrics$FDR
+      ))
+    }
+  }
+}
+# Save the results as a CSV file
+write.csv(results, "/well/nichols/users/qcv214/pms2/viz/sim/sensitivity_results.csv", row.names = FALSE)
+
+```
+
+HOLP is always the best method with 100% recovery at high signal in all cases apart from Gaussian blob, followed by PMs
+But PMS is the best in Gaussian blob
+
+Our new methods are significantly inferior to PMS and HOLP
+
+```{r}
+
+# Optionally, plot the results using ggplot2
+library(ggplot2)
+
+# Example plot: Overlap vs. Signal Strength for each method and signal type
+ggplot(results, aes(x = SignalStrength, y = Overlap, color = Method)) +
+  geom_line() +
+  facet_wrap(~ SignalType) +
+  theme_minimal() +
+  labs(title = "True % Overlap vs Signal Strength",
+       x = "Signal Strength",
+       y = "True % Overlap")
+```
+
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "pmshi" = "#e6ab02",
+  "holp" = "#a6761d"
+)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each SignalType and create a separate plot
+for (signal_type in signal_types) {
+  # Filter the results for the current SignalType
+  signal_data <- subset(results, SignalType == signal_type)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap, color = Method)) +
+    geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("True % Overlap vs Signal Strength -", signal_type),
+         x = "Signal Strength",
+         y = "True % Overlap",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+  # Save the plot to a file
+  # ggsave(filename = paste0("/well/nichols/users/qcv214/pms2/viz/sim/", signal_type, "_sensitivity_plot.png"),
+  #        plot = p, width = 8, height = 6)
+}
+```
+
+I want to do line plots for each mask
+
+Recall, Gaussian Blob is wrong. for varying signal
+Correting Gauss signal, with peak at 0,0.5,1,2,3,5 `7210345`
+
+Adding signal 2,5 to the current analyses
+
+###Stability
+
+1) bootstrapping: I think it is quite uninteresting, but needed
+    sample(1:250,500,replace = TRUE)
+    
+2) Adding noise. will it really be different from 0-strength signal?
+
+
+Splitting training data into 2 sets, evaluate all methods with strength 0, 0.5,3
+//sim_binmask_stab.R. 7210843
+
+#20 Aug
+
+Right now I only have 2 subsets of data for stability. Computing sd is not an option, so I will just calculate the difference between two subsets instead.
+
+```{r}
+# Define the parameters
+signal_types <- c("binmask")
+methods <- c("PCA90", "SPCA90", "PCA90_smooth", "SPCA90_smooth", "ridge", "pmshi", "holp")
+signal_strengths <- c(3, 0.5, 0)
+sets <- c(1, 2)
+base_path <- "/well/nichols/users/qcv214/pms2/viz/sim/aug20_stability_"
+
+# Initialize a data frame to store the results
+results <- data.frame(
+  SignalType = character(),
+  Method = character(),
+  SignalStrength = numeric(),
+  Metric = character(),
+  AbsoluteDifference = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (a in signal_types) {
+  for (b in methods) {
+    for (c in signal_strengths) {
+      # Determine (d) based on the method
+      if (grepl("_smooth$", b)) {
+        d <- "3_"
+      } else {
+        d <- ""
+      }
+      
+      # Initialize vectors to store metrics for each set
+      metrics_set1 <- NULL
+      metrics_set2 <- NULL
+      
+      for (e in sets) {
+        # Construct the file path for each set
+        file_path <- paste0(base_path, a, "_", d, "rank_str", c, "_set", e, "_", b, ".nii.gz")
+        
+        # Load the rank vector
+        rank.vec <- c(fast_read_imgs_mask(file_path, '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+
+        # Define the mask.signal based on signal type
+        mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.index <- (mask.vec %in% c(4, 15))
+        mask.signal <- which(mask.index)
+
+        # Compute accuracy metrics
+        metrics <- accuracy_cal(rank.vec = rank.vec, mask.signal = mask.signal)
+
+        # Store the metrics for each set
+        if (e == 1) {
+          metrics_set1 <- metrics
+        } else {
+          metrics_set2 <- metrics
+        }
+      }
+      
+      # Compute absolute differences between set 1 and set 2
+      abs_diff_overlap <- abs(metrics_set1$overlap - metrics_set2$overlap)
+      abs_diff_FPR <- abs(metrics_set1$FPR - metrics_set2$FPR)
+      abs_diff_FDR <- abs(metrics_set1$FDR - metrics_set2$FDR)
+      
+      # Store the results in the data frame
+      results <- rbind(results, data.frame(
+        SignalType = a,
+        Method = b,
+        SignalStrength = c,
+        Metric = "Overlap",
+        AbsoluteDifference = abs_diff_overlap
+      ))
+      
+      # results <- rbind(results, data.frame(
+      #   SignalType = a,
+      #   Method = b,
+      #   SignalStrength = c,
+      #   Metric = "FPR",
+      #   AbsoluteDifference = abs_diff_FPR
+      # ))
+      # 
+      # results <- rbind(results, data.frame(
+      #   SignalType = a,
+      #   Method = b,
+      #   SignalStrength = c,
+      #   Metric = "FDR",
+      #   AbsoluteDifference = abs_diff_FDR
+      # ))
+    }
+  }
+}
+```
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "pmshi" = "#e6ab02",
+  "holp" = "#a6761d"
+)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each SignalType and create a separate plot for each metric
+for (signal_type in signal_types) {
+  for (metric in unique(results$Metric)) {
+    # Filter the results for the current SignalType and Metric
+    signal_data <- subset(results, SignalType == signal_type & Metric == metric)
+    
+    # Create the plot with bolder lines and distinct colors
+    p <- ggplot(signal_data, aes(x = SignalStrength, y = AbsoluteDifference, color = Method)) +
+      geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+      scale_color_manual(values = custom_colors) +  # Use custom colors
+      theme_minimal() +
+      labs(title = paste(metric, "Absolute Difference vs Signal Strength -", signal_type),
+           x = "Signal Strength",
+           y = paste(metric, "Absolute Difference"),
+           color = "Method") +
+      theme(
+        plot.title = element_text(size = 14, face = "bold"),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 10)
+      )
+    
+    # Display the plot
+    print(p)
+  }
+}
+```
+
+
+#21 Aug
+Real-data simulation signal
+
+// `sim_age_create_signal_SPCA_smooth.R`. 7865474
+'/well/nichols/users/qcv214/pms2/viz/sim/aug21_500_age_rank_SPCA90_smooth'
+
+Use SPCA smooth on age prediction, then select top 1600 voxels to create a flat signal
+`sim_SPCAmask_sens.R` 7866676 => this is label aug17
+
+
+
+
+
 
 
 
