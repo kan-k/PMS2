@@ -98,11 +98,11 @@ smooth_1d_image <- function(x){
 }
 print("here 5")
 
-sub.dat <- t(apply(sub.dat,MARGIN = 1, smooth_1d_image))
+sub.dat.s <- t(apply(sub.dat,MARGIN = 1, smooth_1d_image))
 print(dim(sub.dat))
 print("here 6")
 
-sub.dat.test <- t(apply(sub.dat.test,MARGIN = 1, smooth_1d_image))
+sub.dat.s.test <- t(apply(sub.dat.test,MARGIN = 1, smooth_1d_image))
 print("here 7")
 
 colnames(sub.dat) <- column.names
@@ -111,19 +111,24 @@ print("here 8")
 colnames(sub.dat.test) <- column.names
 ####
 print("here 9")
+colnames(sub.dat.s) <- column.names
+print("here 8")
 
+colnames(sub.dat.s.test) <- column.names
+####
+print("here 9")
 
 
 
 print("ridge")
 #Ridge
+num.vox.vec <- (1:50)*200
 
 set.seed(4)
-fit.ridge <- cv.glmnet(sub.dat,age_tab$age, alpha=0)
+fit.ridge <- cv.glmnet(sub.dat.s,age_tab$age, alpha=0)
 beta <- coef(fit.ridge)
 beta_no_int <- beta[-1,]
 rank_beta.ridge <- beta_no_int[order(abs(beta_no_int), decreasing=TRUE)]
-num.vox.vec <- (1:50)*200
 
 long.rmse <- function(ranked_coef, num.vox.vec){
   train <- vector(mode = 'numeric')
@@ -149,7 +154,7 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/bnn2/res3/res3mask.
 mask.temp[mask.temp!=0] <- abs(c(beta_no_int))
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/aug26_smooth_ridge'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/aug29_smooth2_ridge'))
 
 theta.range <- 10^seq(-4,3,1)
 
@@ -162,14 +167,10 @@ simple.cv <- function(lambda, no.variable = 1000,theta.range. = theta.range){ #C
   test <- vector(mode = 'numeric')
   for(theta in theta.range.){
     #doing PCA
-    print(1)
-    Omeg <- solve(sub.dat%*%lambda%*%t(sub.dat) + (theta)*diag(nrow(sub.dat))) #4x4 
-    print(2)
-    pre_beta_pms <- lambda%*%t(sub.dat)%*%Omeg #4 x 75
-    print(3)
+    Omeg <- solve(sub.dat.s%*%lambda%*%t(sub.dat.s) + (theta)*diag(nrow(sub.dat.s))) #4x4 
+    pre_beta_pms <- lambda%*%t(sub.dat.s)%*%Omeg #4 x 75
     beta_pms <- pre_beta_pms%*%age_tab$age
-    print(4)
-    rownames(beta_pms) <- colnames(sub.dat)
+    rownames(beta_pms) <- colnames(sub.dat.s)
     rank_beta_pms <- beta_pms[order(abs(beta_pms), decreasing=TRUE),]
     
     #Doing prediction
@@ -184,32 +185,13 @@ simple.cv <- function(lambda, no.variable = 1000,theta.range. = theta.range){ #C
   return(out)
 }
 
-# print("tune robust pca")
-# 
-# pca <- PcaHubert(sub.dat,kmax=n.train) 
-# lambda. <- pca$loadings %*% t(pca$loadings) 
-# 
-# robpca.cv <- simple.cv(lambda =lambda.,no.variable = 1000,theta.range. = theta.range )
-
-
-# 
-# print("tune PLS")
-# pls_model <- plsr(age_tab$age ~ sub.dat)
-# lambda. <- loadings(pls_model) %*% t(loadings(pls_model)) #15847 x 15847
-# pls.cv <- simple.cv(lambda.) #theta = 10 is optimal
-# 
-
-
-
-
-
 #below is practically long.rmse
 print("making predictions")
 long.rmse.with.lambda.theta.ridge <- function(lambda,theta,num.vox.vec){
-  Omeg <- solve(sub.dat%*%lambda%*%t(sub.dat) + (theta)*diag(nrow(sub.dat))) #4x4 
-  pre_beta_pms <- lambda%*%t(sub.dat)%*%Omeg #4 x 75
+  Omeg <- solve(sub.dat.s%*%lambda%*%t(sub.dat.s) + (theta)*diag(nrow(sub.dat.s))) #4x4 
+  pre_beta_pms <- lambda%*%t(sub.dat.s)%*%Omeg #4 x 75
   beta_pms <- pre_beta_pms%*%age_tab$age
-  rownames(beta_pms) <- colnames(sub.dat)
+  rownames(beta_pms) <- colnames(sub.dat.s)
   rank_beta_pms <- beta_pms[order(abs(beta_pms), decreasing=TRUE),]
   train <- vector(mode = 'numeric')
   test <- vector(mode = 'numeric')
@@ -231,15 +213,7 @@ long.rmse.with.lambda.theta.ridge <- function(lambda,theta,num.vox.vec){
 }
 
 
-num.vox.vec <- (1:50)*200
 
-# pca <- PcaHubert(sub.dat,kmax=100) 
-print("rmse robpca")
-
-# pca <- PcaHubert(sub.dat,kmax=n.train) 
-# lambda. <- pca$loadings %*% t(pca$loadings) 
-# print(paste0("dim ROBPCA: ", dim(pca$loadings)))
-# res.lambda.ropca <- long.rmse.with.lambda.theta.ridge(lambda., robpca.cv[1,which.min(robpca.cv[3,])], num.vox.vec)
 print("tune pca")
 pca <-  prcomp(sub.dat)
 explained_variance <- pca$sdev^2 / sum(pca$sdev^2)
@@ -247,29 +221,6 @@ explained_variance <- pca$sdev^2 / sum(pca$sdev^2)
 cumulative_variance <- cumsum(explained_variance)
 # Determine the number of components needed to explain at least 90% of the variance
 num_components.90 <- which(cumulative_variance >= 0.90)[1]
-num_components.80 <- which(cumulative_variance >= 0.80)[1]
-
-
-print("tune pca 80")
-lambda.80 <- pca$rotation[, 1:num_components.80]%*% t(pca$rotation[, 1:num_components.80])
-pca.cv.80 <- simple.cv(lambda.80) #theta = 10 is optimal
-print("rmse pca 80")
-res.lambda.pca.80 <- long.rmse.with.lambda.theta.ridge(lambda.80, pca.cv.80[1,which.min(pca.cv.80[3,])], num.vox.vec)
-
-
-#Plotting 
-    Omeg <- solve(sub.dat%*%lambda.80%*%t(sub.dat) + (pca.cv.80[1,which.min(pca.cv.80[3,])])*diag(nrow(sub.dat))) #4x4
-    pre_beta_pms <- lambda.80%*%t(sub.dat)%*%Omeg #4 x 75
-    beta_pms <- pre_beta_pms%*%age_tab$age
-    rownames(beta_pms) <- colnames(sub.dat)
-    rank_beta_pms <- beta_pms[order(abs(beta_pms), decreasing=TRUE),]
-    
-    mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz')
-    mask.temp[mask.temp!=0] <- abs(c(beta_pms))
-    mask.temp@datatype = 16
-    mask.temp@bitpix = 32
-    writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/aug26_smooth_PCA80'))
-
 
 
 print("tune pca 90")
@@ -279,27 +230,27 @@ print("rmse pca 90")
 res.lambda.pca.90 <- long.rmse.with.lambda.theta.ridge(lambda.80, pca.cv.90[1,which.min(pca.cv.90[3,])], num.vox.vec)
 
 #Plotting 
-Omeg <- solve(sub.dat%*%lambda.80%*%t(sub.dat) + (pca.cv.90[1,which.min(pca.cv.90[3,])])*diag(nrow(sub.dat))) #4x4
-pre_beta_pms <- lambda.80%*%t(sub.dat)%*%Omeg #4 x 75
+Omeg <- solve(sub.dat.s%*%lambda.80%*%t(sub.dat.s) + (pca.cv.90[1,which.min(pca.cv.90[3,])])*diag(nrow(sub.dat.s))) #4x4
+pre_beta_pms <- lambda.80%*%t(sub.dat.s)%*%Omeg #4 x 75
 beta_pms <- pre_beta_pms%*%age_tab$age
-rownames(beta_pms) <- colnames(sub.dat)
+rownames(beta_pms) <- colnames(sub.dat.s)
 rank_beta_pms <- beta_pms[order(abs(beta_pms), decreasing=TRUE),]
 
 mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz')
 mask.temp[mask.temp!=0] <- abs(c(beta_pms))
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/aug26_smooth_PCA90'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/aug29_smooth2_PCA90'))
 
 
 
 print("tune SPCA")
 
-cv_model <- cv.glmnet(sub.dat, age_tab$age, alpha = 0, nfolds = 10)
+cv_model <- cv.glmnet(sub.dat.s, age_tab$age, alpha = 0, nfolds = 10)
 # Best lambda from cross-validation
 coefficients <- coef(cv_model, s = "lambda.min")  # Extract coefficients at best lambda
 weights <- abs(coefficients[-1,])  # Exclude intercept from weights (first row of coefficients)
-X_weighted <- scale(sub.dat) * sqrt(weights)
+X_weighted <- scale(sub.dat.s) * sqrt(weights)
 # Perform PCA on the weighted matrix
 pca<- prcomp(X_weighted, center = TRUE, scale. = FALSE)
 
@@ -308,27 +259,7 @@ explained_variance <- pca$sdev^2 / sum(pca$sdev^2)
 cumulative_variance <- cumsum(explained_variance)
 # Determine the number of components needed to explain at least 90% of the variance
 num_components.90 <- which(cumulative_variance >= 0.90)[1]
-num_components.80 <- which(cumulative_variance >= 0.80)[1]
 
-print("tune pca 80")
-lambda.80 <- pca$rotation[, 1:num_components.80]%*% t(pca$rotation[, 1:num_components.80])
-spca.cv.80 <- simple.cv(lambda.80) #theta = 10 is optimal
-print("rmse SPCA 80")
-res.lambda.spca.80 <- long.rmse.with.lambda.theta.ridge(lambda.80, spca.cv.80[1,which.min(spca.cv.80[3,])], num.vox.vec)
-
-
-  #Plotting 
-    Omeg <- solve(sub.dat%*%lambda.80%*%t(sub.dat) + (spca.cv.80[1,which.min(spca.cv.80[3,])])*diag(nrow(sub.dat))) #4x4
-    pre_beta_pms <- lambda.80%*%t(sub.dat)%*%Omeg #4 x 75
-    beta_pms <- pre_beta_pms%*%age_tab$age
-    rownames(beta_pms) <- colnames(sub.dat)
-    rank_beta_pms <- beta_pms[order(abs(beta_pms), decreasing=TRUE),]
-    
-    mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz')
-    mask.temp[mask.temp!=0] <- abs(c(beta_pms))
-    mask.temp@datatype = 16
-    mask.temp@bitpix = 32
-    writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/aug26_smooth_SPCA80'))
 
 print("tune pca 90")
 lambda.80 <- pca$rotation[, 1:num_components.90]%*% t(pca$rotation[, 1:num_components.90])
@@ -337,82 +268,24 @@ print("rmse SPCA 90")
 res.lambda.spca.90 <- long.rmse.with.lambda.theta.ridge(lambda.80, spca.cv.90[1,which.min(spca.cv.90[3,])], num.vox.vec)
 
 #Plotting 
-    Omeg <- solve(sub.dat%*%lambda.80%*%t(sub.dat) + (spca.cv.90[1,which.min(spca.cv.90[3,])])*diag(nrow(sub.dat))) #4x4
-    pre_beta_pms <- lambda.80%*%t(sub.dat)%*%Omeg #4 x 75
-    beta_pms <- pre_beta_pms%*%age_tab$age
-    rownames(beta_pms) <- colnames(sub.dat)
-    rank_beta_pms <- beta_pms[order(abs(beta_pms), decreasing=TRUE),]
-    
-    mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz')
-    mask.temp[mask.temp!=0] <- abs(c(beta_pms))
-    mask.temp@datatype = 16
-    mask.temp@bitpix = 32
-    writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/aug26_smooth_SPCA90'))
+Omeg <- solve(sub.dat.s%*%lambda.80%*%t(sub.dat.s) + (spca.cv.90[1,which.min(spca.cv.90[3,])])*diag(nrow(sub.dat.s))) #4x4
+pre_beta_pms <- lambda.80%*%t(sub.dat.s)%*%Omeg #4 x 75
+beta_pms <- pre_beta_pms%*%age_tab$age
+rownames(beta_pms) <- colnames(sub.dat.s)
+rank_beta_pms <- beta_pms[order(abs(beta_pms), decreasing=TRUE),]
+
+mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz')
+mask.temp[mask.temp!=0] <- abs(c(beta_pms))
+mask.temp@datatype = 16
+mask.temp@bitpix = 32
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/aug29_smooth2_SPCA90'))
 
 
 #Need to save saliency and
 
 
-out <- rbind(res.lambda.pca.80$train,res.lambda.pca.90$train,res.lambda.spca.80$train,res.lambda.spca.90$train ,res.ridge$train, 
-             res.lambda.pca.80$test,res.lambda.pca.90$test,res.lambda.spca.80$test,res.lambda.spca.90$test,res.ridge$test)
-# print(paste0("ROBUST optimal Theta: ", robpca.cv[1,which.min(robpca.cv[3,])]))
-# print(paste0("PCA optimal Theta: ", pca.cv[1,which.min(pca.cv[3,])]))
-# print(paste0("pls optimal Theta: ",pls.cv[1,which.min(pls.cv[3,])]))
-# print(paste0("SPCA optimal Theta: ", spca.cv[1,which.min(spca.cv[3,])]))
-write.csv(out,paste0( '/well/nichols/users/qcv214/pms2/pile/aug26_cv_pms8090_full_smooth.csv'), row.names = FALSE)
+out <- rbind(res.lambda.pca.90$train,res.lambda.spca.90$train ,res.ridge$train, 
+             res.lambda.pca.90$test,res.lambda.spca.90$test,res.ridge$test)
+write.csv(out,paste0( '/well/nichols/users/qcv214/pms2/pile/aug29_cv_pms8090_full_smooth2.csv'), row.names = FALSE)
 
 
-
-####Viz
-
-# #Robust PCA
-# set.seed(4)
-# # pca <- PcaHubert(sub.dat,kmax=100) #it only picks 10 PC ####Note that I need to change kmax to greater than 10
-# pca <- PcaHubert(sub.dat,kmax=2000) 
-# #summary(pca) #look at the first PC that had cumulative variance of 90%
-# #lambda <- pca$loadings[,54] %*% t(pca$loadings[,54]) 
-# lambda <- pca$loadings %*% t(pca$loadings) 
-# Omeg <- solve(sub.dat%*%lambda%*%t(sub.dat) + (robpca.cv[1,which.min(robpca.cv[3,])])*diag(nrow(sub.dat))) #4x4 
-# pre_beta_pms <- lambda%*%t(sub.dat)%*%Omeg #4 x 75
-# beta_pms <- pre_beta_pms%*%age_tab$age
-# rownames(beta_pms) <- colnames(sub.dat)
-# rank_beta_pms <- beta_pms[order(abs(beta_pms), decreasing=TRUE),]
-# 
-# 
-# #PCA 
-# set.seed(4)
-# pca.normal <- prcomp(sub.dat)
-# ind.touse <- min(which(cumsum(pca.normal$sdev^2)/sum(pca.normal$sdev^2) > 0.9)) #72
-# #lambda.normal <- pca.normal$rotation[,ind.touse] %*% t(pca.normal$rotation[,ind.touse])
-# lambda.normal <- pca.normal$rotation%*% t(pca.normal$rotation)
-# Omeg <- solve(sub.dat%*%lambda.normal%*%t(sub.dat) + (pca.cv[1,which.min(pca.cv[3,])])*diag(nrow(sub.dat))) #4x4 
-# pre_beta_pms.normal <- lambda.normal%*%t(sub.dat)%*%Omeg #4 x 75
-# beta_pms.normal <- pre_beta_pms.normal %*%age_tab$age
-# rownames(beta_pms.normal) <- colnames(sub.dat)
-# rank_beta_pms.normal <- beta_pms.normal[order(abs(beta_pms.normal), decreasing=TRUE),]
-
-# 
-# #ROBPCA
-# #Full ROBPCA
-# mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz')
-# mask.temp[mask.temp!=0] <- abs(c(beta_pms))
-# mask.temp@datatype = 16
-# mask.temp@bitpix = 32
-# writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/apr19_robpca_pms'))
-# 
-# 
-# #PCA
-# #Full PCA
-# mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz')
-# mask.temp[mask.temp!=0] <- abs(c(beta_pms.normal))
-# mask.temp@datatype = 16
-# mask.temp@bitpix = 32
-# writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/apr19_pca_pms'))
-# 
-# #Ridge
-# #Full Ridge
-# mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz')
-# mask.temp[mask.temp!=0] <- abs(c(beta_no_int))
-# mask.temp@datatype = 16
-# mask.temp@bitpix = 32
-# writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/apr19_ridge'))

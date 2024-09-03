@@ -1,3 +1,5 @@
+#Aug 30, introduce a double cv. (one during screening, one during pred which shouldn't matter), but more importantly, correctly cv during screening for ridge
+
 if (!require("pacman")) {install.packages("pacman");library(pacman)}
 p_load(BayesGPfit)
 p_load(PMS)
@@ -54,11 +56,12 @@ print("here 3")
 colnames(sub.dat.test) <- colnames(sub.dat)
 
 ##################################################################
-signal.strs <- c(2,5)
+signal.strs <- c(0,0.5,1,2,3,5)
+signal.strs.diff <- c(0,diff(signal.strs))
 
-for(signal.str in signal.strs){
-
-
+for(q in (1:length(signal.strs))){
+  
+  signal.str <- signal.strs[q]
 print("here 4")
 ####Calling mmand
 res3.mask <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz')
@@ -67,21 +70,21 @@ res3.mask <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_
 mask.signal <- seq(1,ncol(sub.dat), 10) #signal every 10th voxel
 
 
-sub.dat[,mask.signal] <- sub.dat[,mask.signal] + signal.str
+sub.dat[,mask.signal] <- sub.dat[,mask.signal] + signal.strs.diff[q]
 
-sub.dat.test[,mask.signal] <- sub.dat.test[,mask.signal] + signal.str
+sub.dat.test[,mask.signal] <- sub.dat.test[,mask.signal] + signal.strs.diff[q]
 
 mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz')
 mask.temp[mask.temp!=0] <- colMeans(sub.dat)
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_sparsemask_str',signal.str,'_meantrainingdata'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug30_500_sparsemask_str',signal.str,'_meantrainingdata'))
 
 mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz')
 mask.temp[mask.temp!=0] <- colMeans(sub.dat.test)
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_sparsemask_str',signal.str,'_meantestdata'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug30_500_sparsemask_str',signal.str,'_meantestdata'))
 
 
 signal.sum.func <- function(dat,indices){
@@ -97,7 +100,7 @@ print("ridge")
 
 set.seed(4)
 fit.ridge <- cv.glmnet(sub.dat,res.var, alpha=0)
-beta <- coef(fit.ridge)
+beta <- coef(fit.ridge, s = "lambda.min")
 beta_no_int <- beta[-1,]
 rank_beta.ridge <- beta_no_int[order(abs(beta_no_int), decreasing=TRUE)]
 num.vox.vec <- (1:40)*100
@@ -108,8 +111,8 @@ long.rmse <- function(ranked_coef, num.vox.vec){
   for(i in num.vox.vec){
     var.sel<- names(ranked_coef[1:i])
     # fit.ridge.pca <- cv.glmnet(sub.dat[,var.sel],age_tab$age, alpha=0)
-    fit.ridge.pca <- glmnet(sub.dat[,var.sel],res.var, alpha=0, lambda = 1e-2) #fixing lambda
-    beta <- coef(fit.ridge.pca)
+    fit.ridge.pca <- cv.glmnet(sub.dat[,var.sel],res.var, alpha=0) #fixing lambda
+    beta <- coef(fit.ridge.pca, s = "lambda.min")
     train <- c(train,sqrt(mean((as.numeric(res.var - cbind(1,sub.dat[,var.sel])%*%beta))^2)))
     test <- c(test,sqrt(mean((as.numeric(res.var.test- cbind(1,sub.dat.test[,var.sel])%*%beta))^2)))
   }
@@ -126,7 +129,7 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_
 mask.temp[mask.temp!=0] <- abs(c(beta_no_int))
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_sparsemask_str',signal.str,'_ridge'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug30_500_sparsemask_str',signal.str,'_ridge'))
 
 var.sel <- (order(abs(beta_no_int), decreasing=TRUE))
 print(length(c(var.sel)))
@@ -134,7 +137,7 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_
 mask.temp[mask.temp!=0][var.sel] <- c(ncol(sub.dat):1)
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_sparsemask_rank_str',signal.str,'_ridge'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug30_500_sparsemask_rank_str',signal.str,'_ridge'))
 
 # theta.range <- 10^seq(-4,3,1)
 
@@ -186,9 +189,9 @@ long.rmse.with.lambda.theta.ridge <- function(lambda,theta,num.vox.vec){
     var.sel<- names(rank_beta_pms[1:i])
     #ridge prediction
     # fit.ridge <- cv.glmnet(sub.dat[,var.sel],age_tab$age, alpha=0)
-    fit.ridge <- glmnet(sub.dat[,var.sel],res.var, alpha=0, lambda = 1e-2) #fixing lambda
+    fit.ridge <- cv.glmnet(sub.dat[,var.sel],res.var, alpha=0) #fixing lambda
     # beta <- coef(fit.ridge, s = "lambda.min")
-    beta <- coef(fit.ridge)
+    beta <- coef(fit.ridge, s = "lambda.min")
     train <- c(train,sqrt(mean((as.numeric(res.var - cbind(1,sub.dat[,var.sel])%*%beta))^2)))
     test <- c(test,sqrt(mean((as.numeric(res.var.test - cbind(1,sub.dat.test[,var.sel])%*%beta))^2)))
   }
@@ -235,7 +238,7 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_
 mask.temp[mask.temp!=0] <- abs(c(beta_pms))
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_sparsemask_str',signal.str,'_PCA90'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug30_500_sparsemask_str',signal.str,'_PCA90'))
 ###
 
 var.sel <- (order(abs(beta_pms), decreasing=TRUE))
@@ -244,7 +247,7 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_
 mask.temp[mask.temp!=0][var.sel] <- c(ncol(sub.dat):1)
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_sparsemask_rank_str',signal.str,'_PCA90'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug30_500_sparsemask_rank_str',signal.str,'_PCA90'))
 
 
 print("tune SPCA")
@@ -282,7 +285,7 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_
 mask.temp[mask.temp!=0] <- abs(c(beta_pms))
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_sparsemask_str',signal.str,'_SPCA90'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug30_500_sparsemask_str',signal.str,'_SPCA90'))
 
 ###
 var.sel <- (order(abs(beta_pms), decreasing=TRUE))
@@ -291,14 +294,14 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_
 mask.temp[mask.temp!=0][var.sel] <- c(ncol(sub.dat):1)
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_sparsemask_rank_str',signal.str,'_SPCA90'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug30_500_sparsemask_rank_str',signal.str,'_SPCA90'))
 
 #Need to save saliency and
 
 
 out <- rbind(res.lambda.pca.90$train,res.lambda.spca.90$train,res.ridge$train, 
              res.lambda.pca.90$test,res.lambda.spca.90$test,res.ridge$test)
-write.csv(out,paste0( '/well/nichols/users/qcv214/pms2/pile/sim_aug17_500_sparsemask_str',signal.str,'_pms90.csv'), row.names = FALSE)
+write.csv(out,paste0( '/well/nichols/users/qcv214/pms2/pile/sim_aug30_500_sparsemask_str',signal.str,'_pms90.csv'), row.names = FALSE)
 
 
 
@@ -348,9 +351,9 @@ long.rmse.pms <- function(pms_ind,num.vox.vec){ #this function is extremely simi
     var.sel<- pms_ind[1:i]
     #ridge prediction
     # fit.ridge <- cv.glmnet(sub.dat[,var.sel],res.var, alpha=0)
-    fit.ridge <- glmnet(sub.dat[,var.sel],res.var, alpha=0, lambda = 1e-2) #fixing lambda
+    fit.ridge <- cv.glmnet(sub.dat[,var.sel],res.var, alpha=0) #fixing lambda
     # beta <- coef(fit.ridge, s = "lambda.min")
-    beta <- coef(fit.ridge)
+    beta <- coef(fit.ridge, s = "lambda.min")
     train <- c(train,sqrt(mean((as.numeric(res.var - cbind(1,sub.dat[,var.sel])%*%beta))^2)))
     test <- c(test,sqrt(mean((as.numeric(res.var.test - cbind(1,sub.dat.test[,var.sel])%*%beta))^2)))
   }
@@ -367,21 +370,21 @@ res.pms.boot <- long.rmse.pms(out.pms.boot, num.vox.vec)
 out <- rbind(res.pms.hi$train,res.pms.holp$train ,res.pms.boot$train, 
              res.pms.hi$test,res.pms.holp$test,res.pms.boot$test)
 
-write.csv(out,paste0( '/well/nichols/users/qcv214/pms2/pile/sim_aug17_500_sparsemask_str',signal.str,'_nbpms.csv'), row.names = FALSE)
+write.csv(out,paste0( '/well/nichols/users/qcv214/pms2/pile/sim_aug30_500_sparsemask_str',signal.str,'_nbpms.csv'), row.names = FALSE)
 
 #plot out.pms.hi
 mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz')
 mask.temp[mask.temp!=0][out.pms.hi] <- c(ncol(sub.dat):1)
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_sparsemask_rank_str',signal.str,'_pmshi'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug30_500_sparsemask_rank_str',signal.str,'_pmshi'))
 
 #plot out.pms.holp
 mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz')
 mask.temp[mask.temp!=0][out.holp] <- c(ncol(sub.dat):1)
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_sparsemask_rank_str',signal.str,'_holp'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug30_500_sparsemask_rank_str',signal.str,'_holp'))
 
 
 
@@ -411,7 +414,7 @@ print("ridge")
 
 set.seed(4)
 fit.ridge <- cv.glmnet(sub.dat.s,res.var, alpha=0)
-beta <- coef(fit.ridge)
+beta <- coef(fit.ridge, s = "lambda.min")
 beta_no_int <- beta[-1,]
 rank_beta.ridge <- beta_no_int[order(abs(beta_no_int), decreasing=TRUE)]
 num.vox.vec <- (1:40)*100
@@ -422,8 +425,8 @@ long.rmse <- function(ranked_coef, num.vox.vec){
   for(i in num.vox.vec){
     var.sel<- names(ranked_coef[1:i])
     # fit.ridge.pca <- cv.glmnet(sub.dat[,var.sel],age_tab$age, alpha=0)
-    fit.ridge.pca <- glmnet(sub.dat[,var.sel],res.var, alpha=0, lambda = 1e-2) #fixing lambda
-    beta <- coef(fit.ridge.pca)
+    fit.ridge.pca <- cv.glmnet(sub.dat[,var.sel],res.var, alpha=0) #fixing lambda
+    beta <- coef(fit.ridge.pca, s = "lambda.min")
     train <- c(train,sqrt(mean((as.numeric(res.var - cbind(1,sub.dat[,var.sel])%*%beta))^2)))
     test <- c(test,sqrt(mean((as.numeric(res.var.test- cbind(1,sub.dat.test[,var.sel])%*%beta))^2)))
   }
@@ -440,7 +443,7 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_
 mask.temp[mask.temp!=0] <- abs(c(beta_no_int))
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_sparsemask_3_str',signal.str,'_ridge_smooth'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug30_500_sparsemask_3_str',signal.str,'_ridge_smooth'))
 
 # var.sel<- as.numeric(rank_beta.ridge)
 var.sel <- (order(abs(beta_no_int), decreasing=TRUE))
@@ -449,7 +452,7 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_
 mask.temp[mask.temp!=0][var.sel] <- c(ncol(sub.dat):1)
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_sparsemask_3_rank_str',signal.str,'_ridge_smooth'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug30_500_sparsemask_3_rank_str',signal.str,'_ridge_smooth'))
 
 theta.range <- 10^seq(-1,3,1)
 
@@ -495,9 +498,9 @@ long.rmse.with.lambda.theta.ridge <- function(lambda,theta,num.vox.vec){
     var.sel<- names(rank_beta_pms[1:i])
     #ridge prediction
     # fit.ridge <- cv.glmnet(sub.dat[,var.sel],age_tab$age, alpha=0)
-    fit.ridge <- glmnet(sub.dat[,var.sel],res.var, alpha=0, lambda = 1e-2) #fixing lambda
+    fit.ridge <- cv.glmnet(sub.dat[,var.sel],res.var, alpha=0) #fixing lambda
     # beta <- coef(fit.ridge, s = "lambda.min")
-    beta <- coef(fit.ridge)
+    beta <- coef(fit.ridge, s = "lambda.min")
     train <- c(train,sqrt(mean((as.numeric(res.var - cbind(1,sub.dat[,var.sel])%*%beta))^2)))
     test <- c(test,sqrt(mean((as.numeric(res.var.test - cbind(1,sub.dat.test[,var.sel])%*%beta))^2)))
   }
@@ -534,7 +537,7 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_
 mask.temp[mask.temp!=0] <- abs(c(beta_pms))
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_sparsemask_3_str',signal.str,'_PCA90_smooth'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug30_500_sparsemask_3_str',signal.str,'_PCA90_smooth'))
 ###
 
 # var.sel<- as.numeric(c(rank_beta_pms))
@@ -547,7 +550,7 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_
 mask.temp[mask.temp!=0][var.sel] <- c(ncol(sub.dat):1)
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_sparsemask_3_rank_str',signal.str,'_PCA90_smooth'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug30_500_sparsemask_3_rank_str',signal.str,'_PCA90_smooth'))
 
 
 print("tune SPCA")
@@ -586,7 +589,7 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_
 mask.temp[mask.temp!=0] <- abs(c(beta_pms))
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_sparsemask_3_str',signal.str,'_SPCA90_smooth'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug30_500_sparsemask_3_str',signal.str,'_SPCA90_smooth'))
 
 # var.sel<- as.numeric(c(rank_beta_pms))
 var.sel <- (order(abs(beta_pms), decreasing=TRUE))
@@ -595,12 +598,12 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_
 mask.temp[mask.temp!=0][var.sel] <- c(ncol(sub.dat):1)
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_sparsemask_3_rank_str',signal.str,'_SPCA90_smooth'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug30_500_sparsemask_3_rank_str',signal.str,'_SPCA90_smooth'))
 
 ###
 out <- rbind(res.lambda.pca.90$train,res.lambda.spca.90$train,res.ridge$train, 
              res.lambda.pca.90$test,res.lambda.spca.90$test,res.ridge$test)
-write.csv(out,paste0( '/well/nichols/users/qcv214/pms2/pile/sim_aug17_500_sparsemask_3_str',signal.str,'_pms90_smooth.csv'), row.names = FALSE)
+write.csv(out,paste0( '/well/nichols/users/qcv214/pms2/pile/sim_aug30_500_sparsemask_3_str',signal.str,'_pms90_smooth.csv'), row.names = FALSE)
 
 
 ################################################################ pca smooth 2 ######################################################################
@@ -610,7 +613,7 @@ print("ridge")
 
 set.seed(4)
 fit.ridge <- cv.glmnet(sub.dat.s,res.var, alpha=0)
-beta <- coef(fit.ridge)
+beta <- coef(fit.ridge, s = "lambda.min")
 beta_no_int <- beta[-1,]
 rank_beta.ridge <- beta_no_int[order(abs(beta_no_int), decreasing=TRUE)]
 num.vox.vec <- (1:40)*100
@@ -621,8 +624,8 @@ long.rmse <- function(ranked_coef, num.vox.vec){
   for(i in num.vox.vec){
     var.sel<- names(ranked_coef[1:i])
     # fit.ridge.pca <- cv.glmnet(sub.dat[,var.sel],age_tab$age, alpha=0)
-    fit.ridge.pca <- glmnet(sub.dat.s[,var.sel],res.var, alpha=0, lambda = 1e-2) #fixing lambda
-    beta <- coef(fit.ridge.pca)
+    fit.ridge.pca <- cv.glmnet(sub.dat.s[,var.sel],res.var, alpha=0) #fixing lambda
+    beta <- coef(fit.ridge.pca, s = "lambda.min")
     train <- c(train,sqrt(mean((as.numeric(res.var - cbind(1,sub.dat.s[,var.sel])%*%beta))^2)))
     test <- c(test,sqrt(mean((as.numeric(res.var.test- cbind(1,sub.dat.s.test[,var.sel])%*%beta))^2)))
   }
@@ -639,7 +642,7 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_
 mask.temp[mask.temp!=0] <- abs(c(beta_no_int))
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_sparsemask_2_str',signal.str,'_ridge_smooth'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug30_500_sparsemask_2_str',signal.str,'_ridge_smooth'))
 
 # var.sel<- as.numeric(rank_beta.ridge)
 var.sel <- (order(abs(beta_no_int), decreasing=TRUE))
@@ -648,7 +651,7 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_
 mask.temp[mask.temp!=0][var.sel] <- c(ncol(sub.dat):1)
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_sparsemask_2_rank_str',signal.str,'_ridge_smooth'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug30_500_sparsemask_2_rank_str',signal.str,'_ridge_smooth'))
 
 theta.range <- 10^seq(-1,3,1)
 
@@ -694,9 +697,9 @@ long.rmse.with.lambda.theta.ridge <- function(lambda,theta,num.vox.vec){
     var.sel<- names(rank_beta_pms[1:i])
     #ridge prediction
     # fit.ridge <- cv.glmnet(sub.dat[,var.sel],age_tab$age, alpha=0)
-    fit.ridge <- glmnet(sub.dat.s[,var.sel],res.var, alpha=0, lambda = 1e-2) #fixing lambda
+    fit.ridge <- cv.glmnet(sub.dat.s[,var.sel],res.var, alpha=0) #fixing lambda
     # beta <- coef(fit.ridge, s = "lambda.min")
-    beta <- coef(fit.ridge)
+    beta <- coef(fit.ridge, s = "lambda.min")
     train <- c(train,sqrt(mean((as.numeric(res.var - cbind(1,sub.dat.s[,var.sel])%*%beta))^2)))
     test <- c(test,sqrt(mean((as.numeric(res.var.test - cbind(1,sub.dat.s.test[,var.sel])%*%beta))^2)))
   }
@@ -733,7 +736,7 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_
 mask.temp[mask.temp!=0] <- abs(c(beta_pms))
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_sparsemask_2_str',signal.str,'_PCA90_smooth'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug30_500_sparsemask_2_str',signal.str,'_PCA90_smooth'))
 ###
 
 # var.sel<- as.numeric(c(rank_beta_pms))
@@ -746,7 +749,7 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_
 mask.temp[mask.temp!=0][var.sel] <- c(ncol(sub.dat):1)
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_sparsemask_2_rank_str',signal.str,'_PCA90_smooth'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug30_500_sparsemask_2_rank_str',signal.str,'_PCA90_smooth'))
 
 
 print("tune SPCA")
@@ -785,7 +788,7 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_
 mask.temp[mask.temp!=0] <- abs(c(beta_pms))
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_sparsemask_2_str',signal.str,'_SPCA90_smooth'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug30_500_sparsemask_2_str',signal.str,'_SPCA90_smooth'))
 
 # var.sel<- as.numeric(c(rank_beta_pms))
 var.sel <- (order(abs(beta_pms), decreasing=TRUE))
@@ -794,11 +797,35 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_
 mask.temp[mask.temp!=0][var.sel] <- c(ncol(sub.dat):1)
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug17_500_sparsemask_2_rank_str',signal.str,'_SPCA90_smooth'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug30_500_sparsemask_2_rank_str',signal.str,'_SPCA90_smooth'))
 
 ###
 out <- rbind(res.lambda.pca.90$train,res.lambda.spca.90$train,res.ridge$train, 
              res.lambda.pca.90$test,res.lambda.spca.90$test,res.ridge$test)
-write.csv(out,paste0( '/well/nichols/users/qcv214/pms2/pile/sim_aug17_500_sparsemask_2_str',signal.str,'_pms90_smooth.csv'), row.names = FALSE)
+write.csv(out,paste0( '/well/nichols/users/qcv214/pms2/pile/sim_aug30_500_sparsemask_2_str',signal.str,'_pms90_smooth.csv'), row.names = FALSE)
+############################################################################################################
+p.values <- numeric(ncol(sub.dat))
 
+# Conduct voxel-wise linear regression
+for (v in 1:ncol(sub.dat)) {
+  model <- lm(sub.dat[, v] ~ res.var)
+  p.values[v] <- summary(model)$coefficients[2, 4]  # Extract p-value for the slope (res.var)
+}
+
+# Create a mask with the p-values
+pval_mask <- res3.mask
+pval_mask[pval_mask != 0] <- p.values
+
+# Save the p-value map as a NIfTI file
+pval_mask@datatype <- 16
+pval_mask@bitpix <- 32
+writeNIfTI(pval_mask, paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug30_500_sparsemask_str', signal.str, '_pvalmap'))
+
+# Optional: Threshold the p-value map and save significant voxels
+threshold <- 0.05  # You can adjust this threshold
+sig_voxels <- pval_mask
+sig_voxels[pval_mask > threshold] <- 0  # Set non-significant voxels to 0
+
+# Save the thresholded significant voxel map
+writeNIfTI(sig_voxels, paste0('/well/nichols/users/qcv214/pms2/viz/sim/aug30_500_sparsemask_str', signal.str, '_pvalthresmap'))
 }
