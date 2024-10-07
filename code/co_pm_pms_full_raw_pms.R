@@ -1,5 +1,7 @@
 #29 Aug: modelling pm_tf
 
+#sep20 including co.dat with caterogrical
+#sep24 inclde co.dat with continuous var
 
 if (!require("pacman")) {install.packages("pacman");library(pacman)}
 p_load(BayesGPfit)
@@ -33,11 +35,34 @@ n.train <- length(train.test.ind$train)
 
 # age_tab.test <- age_tab[101:200,]
 # age_tab <- age_tab[1:100,]
-age_tab.test <- age_tab[train.test.ind$test,]
-age_tab <- age_tab[train.test.ind$train,]
+
+
+#########
+age <- as.numeric(age_tab$age)
+sex <-  as.numeric(age_tab$sex)
+sex <- sapply(sex, function(x) replace(x, x==0,-1)) #Change female to -1, male to 1
+depind <- age_tab$DepInd
+# quantile_thresholds <- quantile(depind[train.test.ind$train], probs = seq(0, 1, by = 0.34))
+# #age.group <- ifelse(age > mean(age), yes = 1, no = -1)
+# dep.group1 <- ifelse(depind <=quantile_thresholds[[2]], yes =1, no = 0)
+# dep.group2 <- ifelse(depind > quantile_thresholds[[2]] & depind <=quantile_thresholds[[3]], yes =1, no = 0)
+# dep.group3 <- ifelse(depind > quantile_thresholds[[3]], yes =1, no = 0)
+# 
+# quantile_thresholds <- quantile(age[train.test.ind$train], probs = seq(0, 1, by = 0.34))
+# #age.group <- ifelse(age > mean(age), yes = 1, no = -1)
+# age.group1 <- ifelse(age <=quantile_thresholds[[2]], yes =1, no = 0)
+# age.group2 <- ifelse(age > quantile_thresholds[[2]] & age <=quantile_thresholds[[3]], yes =1, no = 0)
+# age.group3 <- ifelse(age > quantile_thresholds[[3]], yes =1, no = 0)
+# 
+# co.dat <- cbind(sex,dep.group1,dep.group2,dep.group3 ,age.group1,age.group2,age.group3)
+co.dat <- cbind(sex,depind,age)
+########
 
 #Over_writing age with pm_tf so I dont have to change the subsequent code
 age_tab$age <- age_tab$pm_tf
+
+age_tab.test <- age_tab[train.test.ind$test,]
+age_tab <- age_tab[train.test.ind$train,]
 
 ##Get data 
 
@@ -90,10 +115,10 @@ long.rmse <- function(ranked_coef, num.vox.vec){
   for(i in num.vox.vec){
     var.sel<- names(ranked_coef[1:i])
     # fit.ridge.pca <- cv.glmnet(sub.dat[,var.sel],age_tab$age, alpha=0)
-    fit.ridge.pca <- cv.glmnet(sub.dat[,var.sel],age_tab$age, alpha=0) #fixing lambda
+    fit.ridge.pca <- cv.glmnet(cbind(sub.dat[,var.sel],co.dat[train.test.ind$train, ]),age_tab$age, alpha=0)  #fixing lambda
     beta <- coef(fit.ridge.pca, s = "lambda.min")
-    train <- c(train,sqrt(mean((as.numeric(age_tab$age - cbind(1,sub.dat[,var.sel])%*%beta))^2)))
-    test <- c(test,sqrt(mean((as.numeric(age_tab.test$age - cbind(1,sub.dat.test[,var.sel])%*%beta))^2)))
+    train <- c(train,sqrt(mean((as.numeric(age_tab$age - cbind(1,sub.dat[,var.sel],co.dat[train.test.ind$train, ])%*%beta))^2)))
+    test <- c(test,sqrt(mean((as.numeric(age_tab.test$age - cbind(1,sub.dat.test[,var.sel],co.dat[train.test.ind$test, ])%*%beta))^2)))
   }
   out <- list()
   out$train <- train
@@ -102,7 +127,21 @@ long.rmse <- function(ranked_coef, num.vox.vec){
 }
 
 res.ridge <- long.rmse(rank_beta.ridge, num.vox.vec)
-
+#Full Ridge
+  mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz')
+  mask.temp[mask.temp!=0] <- abs(c(beta_no_int))
+  mask.temp@datatype = 16
+  mask.temp@bitpix = 32
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sep24_pm_dcv_ridge'))
+  
+  var.sel <- (order(abs(beta_no_int), decreasing=TRUE))
+  print(length(c(var.sel)))
+  mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz')
+  mask.temp[mask.temp!=0][var.sel] <- c(ncol(sub.dat):1)/ncol(sub.dat)
+  mask.temp@datatype = 16
+  mask.temp@bitpix = 32
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sep24_pm_dcv_ridge_rank'))
+  
 
 theta.range <- 10^seq(-4,3,1)
 
@@ -128,10 +167,10 @@ simple.cv <- function(lambda, no.variable = 1000,theta.range. = theta.range){ #C
     #Doing prediction
     var.sel<- names(rank_beta_pms[1:no.variable])
     print(5)
-    fit.ridge <- cv.glmnet(sub.dat[,var.sel],age_tab$age, alpha=0)
+    fit.ridge <- cv.glmnet(cbind(sub.dat[,var.sel],co.dat[train.test.ind$train, ]),age_tab$age, alpha=0) 
     beta <- coef(fit.ridge, s = "lambda.min")
-    train <- c(train,sqrt(mean((as.numeric(age_tab$age - cbind(1,sub.dat[,var.sel])%*%beta))^2)))
-    test <- c(test,sqrt(mean((as.numeric(age_tab.test$age - cbind(1,sub.dat.test[,var.sel])%*%beta))^2)))
+    train <- c(train,sqrt(mean((as.numeric(age_tab$age - cbind(1,sub.dat[,var.sel],co.dat[train.test.ind$train, ])%*%beta))^2)))
+    test <- c(test,sqrt(mean((as.numeric(age_tab.test$age - cbind(1,sub.dat.test[,var.sel],co.dat[train.test.ind$test, ])%*%beta))^2)))
   }
   out <- rbind(theta.range,train,test)
   return(out)
@@ -152,11 +191,11 @@ long.rmse.with.lambda.theta.ridge <- function(lambda,theta,num.vox.vec){
     var.sel<- names(rank_beta_pms[1:i])
     #ridge prediction
     # fit.ridge <- cv.glmnet(sub.dat[,var.sel],age_tab$age, alpha=0)
-    fit.ridge <- cv.glmnet(sub.dat[,var.sel],age_tab$age, alpha=0) #fixing lambda
+    fit.ridge <- cv.glmnet(cbind(sub.dat[,var.sel],co.dat[train.test.ind$train, ]),age_tab$age, alpha=0) #fixing lambda
     # beta <- coef(fit.ridge, s = "lambda.min")
     beta <- coef(fit.ridge, s = "lambda.min")
-    train <- c(train,sqrt(mean((as.numeric(age_tab$age - cbind(1,sub.dat[,var.sel])%*%beta))^2)))
-    test <- c(test,sqrt(mean((as.numeric(age_tab.test$age - cbind(1,sub.dat.test[,var.sel])%*%beta))^2)))
+    train <- c(train,sqrt(mean((as.numeric(age_tab$age - cbind(1,sub.dat[,var.sel],co.dat[train.test.ind$train, ])%*%beta))^2)))
+    test <- c(test,sqrt(mean((as.numeric(age_tab.test$age - cbind(1,sub.dat.test[,var.sel],co.dat[train.test.ind$test, ])%*%beta))^2)))
   }
   out <- list()
   out$train <- train
@@ -182,6 +221,33 @@ pca.cv.90 <- simple.cv(lambda.80) #theta = 10 is optimal
 print("rmse pca 90")
 res.lambda.pca.90 <- long.rmse.with.lambda.theta.ridge(lambda.80, pca.cv.90[1,which.min(pca.cv.90[3,])], num.vox.vec)
 
+    Omeg <- solve(sub.dat%*%lambda.80%*%t(sub.dat) + (pca.cv.90[1,which.min(pca.cv.90[3,])])*diag(nrow(sub.dat))) #4x4
+    pre_beta_pms <- lambda.80%*%t(sub.dat)%*%Omeg #4 x 75
+    beta_pms <- pre_beta_pms%*%age_tab$age
+    rownames(beta_pms) <- colnames(sub.dat)
+    rank_beta_pms <- beta_pms[order(abs(beta_pms), decreasing=TRUE),]
+    
+    mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz')
+    mask.temp[mask.temp!=0] <- abs(c(beta_pms))
+    mask.temp@datatype = 16
+    mask.temp@bitpix = 32
+    writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sep24_pm_dcv_PCA'))
+    
+    ###
+    var.sel <- (order(abs(beta_pms), decreasing=TRUE))
+    mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz')
+    mask.temp[mask.temp!=0][var.sel] <- c(ncol(sub.dat):1)/ncol(sub.dat)
+    mask.temp@datatype = 16
+    mask.temp@bitpix = 32
+    writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sep24_pm_dcv_PCA_rank'))
+
+    ####Removing previous data
+    remove(lambda.80)
+    remove(pre_beta_pms)
+    remove(mask.temp)
+    remove(beta_pms)
+    remove(Omeg)
+
 
 print("tune SPCA")
 
@@ -205,9 +271,42 @@ spca.cv.90 <- simple.cv(lambda.80) #theta = 10 is optimal
 print("rmse SPCA 90")
 res.lambda.spca.90 <- long.rmse.with.lambda.theta.ridge(lambda.80, spca.cv.90[1,which.min(spca.cv.90[3,])], num.vox.vec)
 
+Omeg <- solve(sub.dat%*%lambda.80%*%t(sub.dat) + (pca.cv.90[1,which.min(pca.cv.90[3,])])*diag(nrow(sub.dat))) #4x4
+pre_beta_pms <- lambda.80%*%t(sub.dat)%*%Omeg #4 x 75
+beta_pms <- pre_beta_pms%*%age_tab$age
+rownames(beta_pms) <- colnames(sub.dat)
+rank_beta_pms <- beta_pms[order(abs(beta_pms), decreasing=TRUE),]
+
+    mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz')
+    mask.temp[mask.temp!=0] <- abs(c(beta_pms))
+    mask.temp@datatype = 16
+    mask.temp@bitpix = 32
+    writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sep24_pm_dcv_SPCA'))
+    
+    ###
+    var.sel <- (order(abs(beta_pms), decreasing=TRUE))
+    mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz')
+    mask.temp[mask.temp!=0][var.sel] <- c(ncol(sub.dat):1)/ncol(sub.dat)
+    mask.temp@datatype = 16
+    mask.temp@bitpix = 32
+    writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sep24_pm_dcv_SPCA_rank'))
+    
+    ####Removing previous data
+    remove(lambda.80)
+    remove(pre_beta_pms)
+    remove(mask.temp)
+    remove(beta_pms)
+    remove(Omeg)
+    remove(pca)
+    remove(lambda.80)
+    remove(weights)
+    remove(X_weighted)
+
+
 out <- rbind(res.lambda.pca.90$train,res.lambda.spca.90$train ,res.ridge$train, 
              res.lambda.pca.90$test,res.lambda.spca.90$test,res.ridge$test)
-write.csv(out,paste0( '/well/nichols/users/qcv214/pms2/pile/aug30_pm_dcv_pms8090_full.csv'), row.names = FALSE)
+write.csv(out,paste0( '/well/nichols/users/qcv214/pms2/pile/sep24_pm_dcv_pms8090_full.csv'), row.names = FALSE)
+
 
 ##################################################################################################################################
 #################### PMS and HOLP
@@ -236,11 +335,11 @@ long.rmse.pms <- function(pms_ind,num.vox.vec){ #this function is extremely simi
     var.sel<- pms_ind[1:i]
     #ridge prediction
     # fit.ridge <- cv.glmnet(sub.dat[,var.sel],age_tab$age, alpha=0)
-    fit.ridge <- cv.glmnet(sub.dat[,var.sel],age_tab$age, alpha=0) #fixing lambda
+    fit.ridge <- cv.glmnet(cbind(sub.dat[,var.sel],co.dat[train.test.ind$train, ]),age_tab$age, alpha=0) #fixing lambda
     # beta <- coef(fit.ridge, s = "lambda.min")
     beta <- coef(fit.ridge, s = "lambda.min")
-    train <- c(train,sqrt(mean((as.numeric(age_tab$age - cbind(1,sub.dat[,var.sel])%*%beta))^2)))
-    test <- c(test,sqrt(mean((as.numeric(age_tab.test$age - cbind(1,sub.dat.test[,var.sel])%*%beta))^2)))
+    train <- c(train,sqrt(mean((as.numeric(age_tab$age - cbind(1,sub.dat[,var.sel],co.dat[train.test.ind$train, ])%*%beta))^2)))
+    test <- c(test,sqrt(mean((as.numeric(age_tab.test$age - cbind(1,sub.dat.test[,var.sel],co.dat[train.test.ind$test, ])%*%beta))^2)))
   }
   out <- list()
   out$train <- train
@@ -254,20 +353,20 @@ res.pms.holp <- long.rmse.pms(out.holp, num.vox.vec)
 out <- rbind(res.pms.hi$train,res.pms.holp$train, 
              res.pms.hi$test,res.pms.holp$test)
 
-write.csv(out,paste0( '/well/nichols/users/qcv214/pms2/pile/aug30_pm_dcv_nbpms_full.csv'), row.names = FALSE)
+write.csv(out,paste0( '/well/nichols/users/qcv214/pms2/pile/sep24_pm_dcv_nbpms_full.csv'), row.names = FALSE)
 
 #plot out.pms.hi
 mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz')
 mask.temp[mask.temp!=0][out.pms.hi] <- c(ncol(sub.dat):1)/ncol(sub.dat)
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/aug30_pm_dcv_pms_hi'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sep24_pm_dcv_pms_hi'))
 
 #plot out.pms.holp
 mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz')
 mask.temp[mask.temp!=0][out.holp] <- c(ncol(sub.dat):1)/ncol(sub.dat)
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/aug30_pm_dcv_pms_holp'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sep24_pm_dcv_pms_holp'))
 
 

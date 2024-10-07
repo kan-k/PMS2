@@ -24,7 +24,7 @@ print("load data")
 
 #Fix shinkage param
 #########
-shrinkage.param <- 1e-5
+shrinkage.param <- 0 #was 1e-5
 #########
 
 ##Get pm response from kgpnn project
@@ -192,7 +192,7 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/bnn2/res3/res3mask.
 mask.temp[mask.temp!=0] <- abs(c(beta_pms))
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sep9_age_dcv_smooth_PCA90_proj'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sep16_age_dcv_smooth_PCA90_proj'))
 
 ####Removing previous data
 remove(lambda.80)
@@ -220,7 +220,7 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/bnn2/res3/res3mask.
 mask.temp[mask.temp!=0] <- abs(c(beta_pms))
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sep9_age_dcv_smooth_PCA90_cov'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sep16_age_dcv_smooth_PCA90_cov'))
 ########################################
 ####Removing previous data
 remove(lambda.80)
@@ -255,7 +255,7 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/bnn2/res3/res3mask.
 mask.temp[mask.temp!=0] <- abs(c(beta_pms))
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sep9_age_dcv_smooth_PCA90_corr'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sep16_age_dcv_smooth_PCA90_corr'))
 
 remove(lambda.80)
 remove(pre_beta_pms)
@@ -298,7 +298,7 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/bnn2/res3/res3mask.
 mask.temp[mask.temp!=0] <- abs(c(beta_pms))
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sep9_age_dcv_smooth_SPCA90_proj'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sep16_age_dcv_smooth_SPCA90_proj'))
 
 ####Removing previous data
 remove(lambda.80)
@@ -325,7 +325,7 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/bnn2/res3/res3mask.
 mask.temp[mask.temp!=0] <- abs(c(beta_pms))
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sep9_age_dcv_smooth_SPCA90_cov'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sep16_age_dcv_smooth_SPCA90_cov'))
 
 remove(lambda.80)
 remove(pre_beta_pms)
@@ -356,7 +356,7 @@ mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/bnn2/res3/res3mask.
 mask.temp[mask.temp!=0] <- abs(c(beta_pms))
 mask.temp@datatype = 16
 mask.temp@bitpix = 32
-writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sep9_age_dcv_smooth_SPCA90_corr'))
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sep16_age_dcv_smooth_SPCA90_corr'))
 
 
 #Need to save saliency and
@@ -365,7 +365,7 @@ writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sep9_age_dcv_sm
 out <- rbind(res.lambda.pca.90.p$train,res.lambda.spca.90.p$train , res.lambda.pca.90.c$train,res.lambda.spca.90.c$train, res.lambda.pca.90.cor$train,res.lambda.spca.90.cor$train,
              res.lambda.pca.90.p$test,res.lambda.spca.90.p$test,res.lambda.pca.90.c$test,res.lambda.spca.90.c$test,res.lambda.pca.90.cor$test,res.lambda.spca.90.cor$test)
 
-write.csv(out,paste0( '/well/nichols/users/qcv214/pms2/pile/sep9_age_dcv_pms90_smooth_shrink.csv'), row.names = FALSE)
+write.csv(out,paste0( '/well/nichols/users/qcv214/pms2/pile/sep16_age_dcv_pms90_smooth_shrink.csv'), row.names = FALSE)
 
 
 

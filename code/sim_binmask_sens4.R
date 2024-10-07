@@ -1,9 +1,13 @@
 #Aug 30, introduce a double cv. (one during screening, one during pred which shouldn't matter), but more importantly, correctly cv during screening for ridge
-
+# install.packages("feather")
+# library(rrcov)
 #Sep 2, instead of adding signals to raw data, i'll replace signals
+
+#sep 20, change from runif(0.1) to runif(6)
 
 if (!require("pacman")) {install.packages("pacman");library(pacman)}
 p_load(BayesGPfit)
+p_load(Matrix)
 p_load(PMS)
 p_load(oro.nifti)
 p_load(neurobase)
@@ -15,6 +19,7 @@ p_load(nimble)
 p_load(extraDistr)
 p_load(rrcov)
 p_load(pls)
+
 install.packages("/well/nichols/users/qcv214/pms2/package/mmand_1.6.2.tar.gz", repos = NULL, type = "source")
 library(mmand)
 
@@ -68,9 +73,9 @@ mask.index <- (mask.vec %in% c(4,15))
 mask.signal <- which(mask.index) #
 
 set.seed(4)
-sub.dat[,mask.signal] <- matrix(runif(nrow(sub.dat)*length(mask.signal),0,0.1) , nrow = nrow(sub.dat), ncol = length(mask.signal))
+sub.dat[,mask.signal] <- matrix(runif(nrow(sub.dat)*length(mask.signal),0,6) , nrow = nrow(sub.dat), ncol = length(mask.signal))
 set.seed(4)
-sub.dat.test[,mask.signal] <-  matrix(runif(nrow(sub.dat.test)*length(mask.signal),0,0.1) , nrow = nrow(sub.dat.test), ncol = length(mask.signal))
+sub.dat.test[,mask.signal] <-  matrix(runif(nrow(sub.dat.test)*length(mask.signal),0,6) , nrow = nrow(sub.dat.test), ncol = length(mask.signal))
 
 #Assume beta = 1, so we don't specify anything. and vartiance is simple, which corresponds to y being sum of active voxels
 signal.sum.func <- function(dat,indices){
@@ -81,7 +86,7 @@ res.var <- apply(sub.dat, MARGIN = 1, FUN = signal.sum.func, indices = mask.sign
 res.var.test <- apply(sub.dat.test, MARGIN = 1, FUN = signal.sum.func, indices = mask.signal)
 
 # var.pred <- var(res.var) #empirical variance
-var.pred <- length(mask.signal)/1200 #theoretical variance => from 0.1^2/12
+var.pred <- length(mask.signal)*3 #theoretical variance => from 0.1^2/12
 
 rsquares <- c(1,0.9,0.5)
 # noise.strs <- c(0, var.pred/0.9 - var.pred, var.pred/0.5 - var.pred) #R2 = 1, 0.9, 0.5
@@ -132,7 +137,7 @@ for(q in (1:length(noise.strs))){
   mask.temp[mask.temp!=0] <- abs(c(beta_no_int))
   mask.temp@datatype = 16
   mask.temp@bitpix = 32
-  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_binmask_str',rsquare,'_ridge'))
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_binmask_str',rsquare,'_ridge'))
   
   var.sel <- (order(abs(beta_no_int), decreasing=TRUE))
   print(length(c(var.sel)))
@@ -140,7 +145,7 @@ for(q in (1:length(noise.strs))){
   mask.temp[mask.temp!=0][var.sel] <- c(ncol(sub.dat):1)
   mask.temp@datatype = 16
   mask.temp@bitpix = 32
-  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_binmask_rank_str',rsquare,'_ridge'))
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_binmask_rank_str',rsquare,'_ridge'))
   
   # theta.range <- 10^seq(-4,3,1)
   
@@ -241,7 +246,7 @@ for(q in (1:length(noise.strs))){
   mask.temp[mask.temp!=0] <- abs(c(beta_pms))
   mask.temp@datatype = 16
   mask.temp@bitpix = 32
-  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_binmask_str',rsquare,'_PCA90'))
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_binmask_str',rsquare,'_PCA90'))
   ###
   
   var.sel <- (order(abs(beta_pms), decreasing=TRUE))
@@ -250,7 +255,7 @@ for(q in (1:length(noise.strs))){
   mask.temp[mask.temp!=0][var.sel] <- c(ncol(sub.dat):1)
   mask.temp@datatype = 16
   mask.temp@bitpix = 32
-  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_binmask_rank_str',rsquare,'_PCA90'))
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_binmask_rank_str',rsquare,'_PCA90'))
   
   
   print("tune SPCA")
@@ -288,7 +293,7 @@ for(q in (1:length(noise.strs))){
   mask.temp[mask.temp!=0] <- abs(c(beta_pms))
   mask.temp@datatype = 16
   mask.temp@bitpix = 32
-  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_binmask_str',rsquare,'_SPCA90'))
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_binmask_str',rsquare,'_SPCA90'))
   
   ###
   var.sel <- (order(abs(beta_pms), decreasing=TRUE))
@@ -297,14 +302,14 @@ for(q in (1:length(noise.strs))){
   mask.temp[mask.temp!=0][var.sel] <- c(ncol(sub.dat):1)
   mask.temp@datatype = 16
   mask.temp@bitpix = 32
-  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_binmask_rank_str',rsquare,'_SPCA90'))
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_binmask_rank_str',rsquare,'_SPCA90'))
   
   #Need to save saliency and
   
   
   out <- rbind(res.lambda.pca.90$train,res.lambda.spca.90$train,res.ridge$train, 
                res.lambda.pca.90$test,res.lambda.spca.90$test,res.ridge$test)
-  write.csv(out,paste0( '/well/nichols/users/qcv214/pms2/pile/sim_sep10_500_binmask_str',rsquare,'_pms90.csv'), row.names = FALSE)
+  write.csv(out,paste0( '/well/nichols/users/qcv214/pms2/pile/sim_sep20_500_binmask_str',rsquare,'_pms90.csv'), row.names = FALSE)
   
   
   
@@ -373,21 +378,21 @@ for(q in (1:length(noise.strs))){
   out <- rbind(res.pms.hi$train,res.pms.holp$train ,res.pms.boot$train, 
                res.pms.hi$test,res.pms.holp$test,res.pms.boot$test)
   
-  write.csv(out,paste0( '/well/nichols/users/qcv214/pms2/pile/sim_sep10_500_binmask_str',rsquare,'_nbpms.csv'), row.names = FALSE)
+  write.csv(out,paste0( '/well/nichols/users/qcv214/pms2/pile/sim_sep20_500_binmask_str',rsquare,'_nbpms.csv'), row.names = FALSE)
   
   #plot out.pms.hi
   mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz')
   mask.temp[mask.temp!=0][out.pms.hi] <- c(ncol(sub.dat):1)
   mask.temp@datatype = 16
   mask.temp@bitpix = 32
-  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_binmask_rank_str',rsquare,'_pmshi'))
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_binmask_rank_str',rsquare,'_pmshi'))
   
   #plot out.pms.holp
   mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz')
   mask.temp[mask.temp!=0][out.holp] <- c(ncol(sub.dat):1)
   mask.temp@datatype = 16
   mask.temp@bitpix = 32
-  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_binmask_rank_str',rsquare,'_holp'))
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_binmask_rank_str',rsquare,'_holp'))
   
   
   
@@ -448,7 +453,7 @@ for(q in (1:length(noise.strs))){
   mask.temp[mask.temp!=0] <- abs(c(beta_no_int))
   mask.temp@datatype = 16
   mask.temp@bitpix = 32
-  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_binmask_3_str',rsquare,'_ridge_smooth'))
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_binmask_str',rsquare,'_ridge_smooth'))
   
   # var.sel<- as.numeric(rank_beta.ridge)
   var.sel <- (order(abs(beta_no_int), decreasing=TRUE))
@@ -457,7 +462,7 @@ for(q in (1:length(noise.strs))){
   mask.temp[mask.temp!=0][var.sel] <- c(ncol(sub.dat):1)
   mask.temp@datatype = 16
   mask.temp@bitpix = 32
-  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_binmask_3_rank_str',rsquare,'_ridge_smooth'))
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_binmask_rank_str',rsquare,'_ridge_smooth'))
   
   theta.range <- 10^seq(-1,3,1)
   
@@ -542,7 +547,7 @@ for(q in (1:length(noise.strs))){
   mask.temp[mask.temp!=0] <- abs(c(beta_pms))
   mask.temp@datatype = 16
   mask.temp@bitpix = 32
-  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_binmask_3_str',rsquare,'_PCA90_smooth'))
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_binmask_str',rsquare,'_PCA90_smooth'))
   ###
   
   # var.sel<- as.numeric(c(rank_beta_pms))
@@ -553,7 +558,7 @@ for(q in (1:length(noise.strs))){
   mask.temp[mask.temp!=0][var.sel] <- c(ncol(sub.dat):1)
   mask.temp@datatype = 16
   mask.temp@bitpix = 32
-  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_binmask_3_rank_str',rsquare,'_PCA90_smooth'))
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_binmask_rank_str',rsquare,'_PCA90_smooth'))
   
   lambda.80 <- shrinkage.param*(pca$rotation[, 1:num_components.90]%*% t(pca$rotation[, 1:num_components.90]))
   diag(lambda.80) <- diag(lambda.80) + (1-shrinkage.param)
@@ -573,7 +578,7 @@ for(q in (1:length(noise.strs))){
   mask.temp[mask.temp!=0] <- abs(c(beta_pms))
   mask.temp@datatype = 16
   mask.temp@bitpix = 32
-  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_binmask_str',rsquare,'_PCA90_smooth_proj'))
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_binmask_str',rsquare,'_PCA90_smooth_proj'))
   ###
   # var.sel<- as.numeric(c(rank_beta_pms))
   var.sel <- (order(abs(beta_pms), decreasing=TRUE))
@@ -581,7 +586,7 @@ for(q in (1:length(noise.strs))){
   mask.temp[mask.temp!=0][var.sel] <- c(ncol(sub.dat):1)
   mask.temp@datatype = 16
   mask.temp@bitpix = 32
-  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_binmask_rank_str',rsquare,'_PCA90_smooth_proj'))
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_binmask_rank_str',rsquare,'_PCA90_smooth_proj'))
   ###
   lambda.80 <- shrinkage.param*pca$rotation[, 1:num_components.90] %*% diag(pca$sdev[1:num_components.90]^2) %*% t(pca$rotation[, 1:num_components.90])
   diag(lambda.80) <- diag(lambda.80) + (1-shrinkage.param)
@@ -601,7 +606,7 @@ for(q in (1:length(noise.strs))){
   mask.temp[mask.temp!=0] <- abs(c(beta_pms))
   mask.temp@datatype = 16
   mask.temp@bitpix = 32
-  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_binmask_str',rsquare,'_PCA90_smooth_cov'))
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_binmask_str',rsquare,'_PCA90_smooth_cov'))
   ###
   # var.sel<- as.numeric(c(rank_beta_pms))
   var.sel <- (order(abs(beta_pms), decreasing=TRUE))
@@ -609,7 +614,7 @@ for(q in (1:length(noise.strs))){
   mask.temp[mask.temp!=0][var.sel] <- c(ncol(sub.dat):1)
   mask.temp@datatype = 16
   mask.temp@bitpix = 32
-  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_binmask_rank_str',rsquare,'_PCA90_smooth_cov'))
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_binmask_rank_str',rsquare,'_PCA90_smooth_cov'))
   
   print("tune SPCA")
   
@@ -647,7 +652,7 @@ for(q in (1:length(noise.strs))){
   mask.temp[mask.temp!=0] <- abs(c(beta_pms))
   mask.temp@datatype = 16
   mask.temp@bitpix = 32
-  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_binmask_3_str',rsquare,'_SPCA90_smooth'))
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_binmask_str',rsquare,'_SPCA90_smooth'))
   
   # var.sel<- as.numeric(c(rank_beta_pms))
   var.sel <- (order(abs(beta_pms), decreasing=TRUE))
@@ -656,7 +661,7 @@ for(q in (1:length(noise.strs))){
   mask.temp[mask.temp!=0][var.sel] <- c(ncol(sub.dat):1)
   mask.temp@datatype = 16
   mask.temp@bitpix = 32
-  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_binmask_3_rank_str',rsquare,'_SPCA90_smooth'))
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_binmask_rank_str',rsquare,'_SPCA90_smooth'))
   
   lambda.80 <- shrinkage.param*(pca$rotation[, 1:num_components.90]%*% t(pca$rotation[, 1:num_components.90]))
   diag(lambda.80) <- diag(lambda.80) + (1-shrinkage.param)
@@ -676,7 +681,7 @@ for(q in (1:length(noise.strs))){
   mask.temp[mask.temp!=0] <- abs(c(beta_pms))
   mask.temp@datatype = 16
   mask.temp@bitpix = 32
-  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_binmask_str',rsquare,'_SPCA90_smooth_proj'))
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_binmask_str',rsquare,'_SPCA90_smooth_proj'))
   
   # var.sel<- as.numeric(c(rank_beta_pms))
   var.sel <- (order(abs(beta_pms), decreasing=TRUE))
@@ -685,7 +690,7 @@ for(q in (1:length(noise.strs))){
   mask.temp[mask.temp!=0][var.sel] <- c(ncol(sub.dat):1)
   mask.temp@datatype = 16
   mask.temp@bitpix = 32
-  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_binmask_rank_str',rsquare,'_SPCA90_smooth_proj'))
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_binmask_rank_str',rsquare,'_SPCA90_smooth_proj'))
   
   lambda.80 <- shrinkage.param*pca$rotation[, 1:num_components.90] %*% diag(pca$sdev[1:num_components.90]^2) %*% t(pca$rotation[, 1:num_components.90])
   diag(lambda.80) <- diag(lambda.80) + (1-shrinkage.param)
@@ -705,7 +710,7 @@ for(q in (1:length(noise.strs))){
   mask.temp[mask.temp!=0] <- abs(c(beta_pms))
   mask.temp@datatype = 16
   mask.temp@bitpix = 32
-  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_binmask_str',rsquare,'_SPCA90_smooth_cov'))
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_binmask_str',rsquare,'_SPCA90_smooth_cov'))
   
   # var.sel<- as.numeric(c(rank_beta_pms))
   var.sel <- (order(abs(beta_pms), decreasing=TRUE))
@@ -714,17 +719,17 @@ for(q in (1:length(noise.strs))){
   mask.temp[mask.temp!=0][var.sel] <- c(ncol(sub.dat):1)
   mask.temp@datatype = 16
   mask.temp@bitpix = 32
-  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_binmask_rank_str',rsquare,'_SPCA90_smooth_cov'))
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_binmask_rank_str',rsquare,'_SPCA90_smooth_cov'))
   
   ###
   out <- rbind(res.lambda.pca.90$train,res.lambda.spca.90$train,res.ridge$train, 
                res.lambda.pca.90$test,res.lambda.spca.90$test,res.ridge$test)
-  write.csv(out,paste0( '/well/nichols/users/qcv214/pms2/pile/sim_sep10_500_binmask_3_str',rsquare,'_pms90_smooth.csv'), row.names = FALSE)
+  write.csv(out,paste0( '/well/nichols/users/qcv214/pms2/pile/sim_sep20_500_binmask_str',rsquare,'_pms90_smooth.csv'), row.names = FALSE)
   
   out <- rbind(res.lambda.pca.90.p$train,res.lambda.spca.90.p$train , res.lambda.pca.90.c$train,res.lambda.spca.90.c$train,
                res.lambda.pca.90.p$test,res.lambda.spca.90.p$test,res.lambda.pca.90.c$test,res.lambda.spca.90.c$test)
   
-  write.csv(out,paste0( '/well/nichols/users/qcv214/pms2/pile/sim_sep10_500_binmask_3_str',rsquare,'_pms90_smooth_shrink.csv'), row.names = FALSE)  
+  write.csv(out,paste0( '/well/nichols/users/qcv214/pms2/pile/sim_sep20_500_binmask_str',rsquare,'_pms90_smooth_shrink.csv'), row.names = FALSE)  
   #^^^^^^^^^pca smooth with shrinkage ######################################################################
   
   ############################################################################################################
@@ -745,7 +750,7 @@ for(q in (1:length(noise.strs))){
   mask.temp[mask.temp!=0] <- abs(c(t.stats))
   mask.temp@datatype = 16
   mask.temp@bitpix = 32
-  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_binmask_str',rsquare,'_tmap'))
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_binmask_str',rsquare,'_tmap'))
   
   var.sel <- (order(abs(t.stats), decreasing=TRUE))
   #
@@ -753,6 +758,6 @@ for(q in (1:length(noise.strs))){
   mask.temp[mask.temp!=0][var.sel] <- c(ncol(sub.dat):1)
   mask.temp@datatype = 16
   mask.temp@bitpix = 32
-  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_binmask_rank_str',rsquare,'_tmap'))
+  writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_binmask_rank_str',rsquare,'_tmap'))
   
 }
