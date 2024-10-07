@@ -6791,9 +6791,3006 @@ for (signal_type in signal_types) {
 ```
 
 
+#19 Sep
+
+Major system update., followed this guideline for the new R
+I went through a painstaking process of manually installing packages, dependcies and dependencies of dependencies
+
+All sep10
+//`sim_binmask_sens4.R`   12138440    
+//`sim_gaussmask_sens4.R` 12138513
+//`sim_dbmask_sens4.R`    12138492    
+//`sim_sparsemask_sens4.R`12138487    
+//`sim_SPCAmask_sens4.R`  12138510    
+
+real data with shrink = 0 (HOLP)
+//sep16_age_dcv_pms90_smooth_shrink 12138554
+
+Also created:, for running ridge and lasso on real data
+//`age_ridgelasso.R` sep19_age 12138998
+//`pm_ridgelasso.R` sep19_pm 12139000
+
+
+#20 Sep
+
+
+##Simulation
+Plotting simulation again. Now with building constrained SNR 
+
+
+```{r}
+# Define the parameters
+signal_types <- c("binmask", "dbmask","gaussmask", "sparsemask","SPCAmask")
+
+methods <- c("PCA90", "SPCA90", "PCA90_smooth", "SPCA90_smooth", "ridge", "pmshi", "holp","tmap",
+             "PCA90_smooth_proj", "PCA90_smooth_cov","SPCA90_smooth_proj", "SPCA90_smooth_cov")
+rsquares <- c(1,0.5,0.9)
+base_path <- "/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_"
+
+# Initialize a data frame to store the results
+results <- data.frame(
+  SignalType = character(),
+  Method = character(),
+  SignalStrength = numeric(),
+  Overlap = numeric(),
+  FPR = numeric(),
+  FDR = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (a in signal_types) {
+  
+  ####errors on gaussmak, sep10500 instread of sep10_500
+  if(a == "gaussmask"){
+    base_path <- "/well/nichols/users/qcv214/pms2/viz/sim/sep10500_"
+  } else {
+    base_path <- "/well/nichols/users/qcv214/pms2/viz/sim/sep10_500_"
+  }
+  ########
+  
+  for (b in methods) {
+    for (c in rsquares) {
+      # Determine (d) based on the method
+      if (grepl("_smooth$", b)) {
+        d <- "3_"
+      } else {
+        d <- ""
+      }
+
+      # Construct the file path
+      file_path <- paste0(base_path, a, "_", d, "rank_str", c, "_", b, ".nii.gz")
+      ####
+      rank.vec <- c(fast_read_imgs_mask(file_path, '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+      rank.vec <- order(rank.vec, decreasing = TRUE)
+      # Define the mask.signal based on signal type
+      if (a == "binmask") {
+        mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.index <- (mask.vec %in% c(4, 15))
+        mask.signal <- which(mask.index)
+      } else if (a == "dbmask") {
+        mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.index <- (mask.vec %in% c(4, 19))
+        mask.signal <- which(mask.index)
+      } else if (a == "gaussmask") {
+        mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.index <- (mask.vec %in% c(4, 15))
+        mask.signal <- which(mask.index)
+      } else if (a == "sparsemask") {
+        mask.signal <- seq(1, length(rank.vec), 10) # Signal every 10th voxel
+      } else if (a == "SPCAmask" || a == "SPCAcoefmask" ) {
+        mask.rank <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/sim/aug21_500_age_rank_SPCA90_smooth.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.signal <- order(mask.rank,decreasing = TRUE)[1:1600]
+      }
+
+      # Compute accuracy metrics
+      metrics <- accuracy_cal(rank.vec = rank.vec, mask.signal = mask.signal)
+
+      # Store the results in the data frame
+      results <- rbind(results, data.frame(
+        SignalType = a,
+        Method = b,
+        SignalStrength = c,
+        Overlap = metrics$overlap,
+        FPR = metrics$FPR,
+        FDR = metrics$FDR
+      ))
+    }
+  }
+}
+# Save the results as a CSV file
+# write.csv(results, "/well/nichols/users/qcv214/pms2/viz/sim/sensitivity_results.csv", row.names = FALSE)
+
+```
+
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "pmshi" = "#e6ab02",
+  "holp" = "#a6761d",
+  "tmap" = "#466791",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69", # Light green
+  "SPCA90_smooth_proj" = "#FDB462",   # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each SignalType and create a separate plot
+for (signal_type in signal_types) {
+  # Filter the results for the current SignalType
+  signal_data <- subset(results, SignalType == signal_type)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap, color = Method)) +
+    geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+    ylim(0,100) +
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("Power vs R-square -", signal_type),
+         x = "R-square",
+         y = "Power",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+  # Save the plot to a file
+  # ggsave(filename = paste0("/well/nichols/users/qcv214/pms2/viz/sim/", signal_type, "_sensitivity_plot.png"),
+  #        plot = p, width = 8, height = 6)
+}
+```
+It appears, via visualisation that only Ridge, tmap, SPCA, SPCA smooth (viz looks funny, lines) follow the correct ordering. HOLP, PMS and SPCA smooth proj SHOULD have good results but ordering is revserse somehow.
+
+Note: note currently plotted here, but Ridge smooth is even better than ridge 
+
+ACTUALLY, I think that PCA tries to look at variability, but perhaps with unif(0,0.1), the var is lower compared to the outside brain, let's try one with more var
+
+FPR
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "pmshi" = "#e6ab02",
+  "holp" = "#a6761d",
+  "tmap" = "#466791",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69", # Light green
+  "SPCA90_smooth_proj" = "#FDB462",   # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each SignalType and create a separate plot
+for (signal_type in signal_types) {
+  # Filter the results for the current SignalType
+  signal_data <- subset(results, SignalType == signal_type)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = SignalStrength, y = FPR, color = Method)) +
+    geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+    ylim(0,15) +
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("FPR vs R-square -", signal_type),
+         x = "R-square",
+         y = "FPR",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+  # Save the plot to a file
+  # ggsave(filename = paste0("/well/nichols/users/qcv214/pms2/viz/sim/", signal_type, "_sensitivity_plot.png"),
+  #        plot = p, width = 8, height = 6)
+}
+```
+
+##Real data with artificial HOLP
+Shrinkage = 0 (ie HOLP)
+###Age
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(tidyr)
+
+# Read data
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/aug30_age_dcv_pms8090_full.csv")
+res2 <- read.csv("/well/nichols/users/qcv214/pms2/pile/aug30_age_dcv_pms8090_full_smooth.csv")
+res2 <-  cbind(res2, matrix(data=NA, nrow=nrow(res2), ncol = (length(res) - length(res2))))
+colnames(res2) <- colnames(res)
+res3 <- read.csv("/well/nichols/users/qcv214/pms2/pile/aug30_age_dcv_nbpms_full.csv")
+res3 <-  cbind(res3, matrix(data=NA, nrow=nrow(res3), ncol = (length(res) - length(res3))))
+colnames(res3) <- colnames(res)
+res4 <- read.csv("/well/nichols/users/qcv214/pms2/pile/sep16_age_dcv_pms90_smooth_shrink.csv")
+res4 <-  cbind(res4, matrix(data=NA, nrow=nrow(res4), ncol = (length(res) - length(res4))))
+colnames(res4) <- colnames(res)
+
+# Define custom color palette
+custom_colors <- c(
+  "PCA 90" = "#E41A1C",        # Red
+  "SPCA 90" = "#377EB8",       # Blue
+  "Ridge" = "#4DAF4A",         # Green
+  "Smooth_PCA 90" = "#984EA3", # Purple
+  "Smooth_SPCA 90" = "#FF7F00",# Orange
+  "Smooth_Ridge" = "#FFFF33",  # Yellow
+  "PMS" = "#A65628",           # Brown
+  "PMS_holp" = "#F781BF",      # Pink
+  "SmoothPCA_Proj" = "#8DD3C7",  # Light teal
+  "SmoothSPCA_Proj" = "#B3DE69", # Light green
+  "SmoothPCA_Cov" = "#FDB462",   # Orange-yellow
+  "SmoothSPCA_Cov" = "#FB8072",   # Salmon pink
+  "SmoothPCA_Corr" = "#66C2A5",  # Medium teal
+  "SmoothSPCA_Corr" = "#FC8D62"  # Dark salmon/orange
+)
+
+# First plot
+resdat <- as.data.frame(rbind(res[1:3,], res2[c(1:3),], res3[1:2, ], res4[1:6, ]))
+num.vox.vec <- (1:50)*200
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge', 'Smooth_PCA 90','Smooth_SPCA 90','Smooth_Ridge','PMS','PMS_holp'
+                   ,'SmoothPCA_Proj','SmoothSPCA_Proj','SmoothPCA_Cov','SmoothSPCA_Cov', "SmoothPCA_Corr", "SmoothSPCA_Corr")
+
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the first line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Second plot
+resdat <- as.data.frame(rbind(res[4:6,], res2[c(4:6),], res3[3:4, ], res4[7:12, ]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge', 'Smooth_PCA 90','Smooth_SPCA 90','Smooth_Ridge','PMS','PMS_holp'
+                   ,'SmoothPCA_Proj','SmoothSPCA_Proj','SmoothPCA_Cov','SmoothSPCA_Cov', "SmoothPCA_Corr", "SmoothSPCA_Corr")
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the second line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+Shrinkage differs from HOLP because of Smoothing!!
+
+Also load ridge and lasso 
+####age
+```{r}
+#lasso
+runs.hs <- 1:1
+hs.int<-matrix(,nrow=length(runs.hs),ncol=13)
+for(i in runs.hs){
+  hs.int[which(i==runs.hs),] <- t(as.matrix(read.csv(paste0("/well/nichols/users/qcv214/pms2/pile/sep19_age_lasso_noscale_",i,".csv"))))
+}
+(l.train <- quantile(hs.int[,5],c(0.5)))
+(l.test <-quantile(hs.int[,6],c(0.5)))
+
+#ridge
+runs.hs <- 1:1
+hs.int<-matrix(,nrow=length(runs.hs),ncol=13)
+for(i in runs.hs){
+  hs.int[which(i==runs.hs),] <- t(as.matrix(read.csv(paste0("/well/nichols/users/qcv214/pms2/pile/sep19_age_ridge_noscale_",i,".csv"))))
+}
+(r.train <- quantile(hs.int[,5],c(0.5)))
+(r.test <-quantile(hs.int[,6],c(0.5)))
+```
+
+####pm
+```{r}
+#lasso
+runs.hs <- 1:1
+hs.int<-matrix(,nrow=length(runs.hs),ncol=13)
+for(i in runs.hs){
+  hs.int[which(i==runs.hs),] <- t(as.matrix(read.csv(paste0("/well/nichols/users/qcv214/pms2/pile/sep19_pm_lasso_noscale_",i,".csv"))))
+}
+(l.train <- quantile(hs.int[,5],c(0.5)))
+(l.test <-quantile(hs.int[,6],c(0.5)))
+
+#ridge
+runs.hs <- 1:1
+hs.int<-matrix(,nrow=length(runs.hs),ncol=13)
+for(i in runs.hs){
+  hs.int[which(i==runs.hs),] <- t(as.matrix(read.csv(paste0("/well/nichols/users/qcv214/pms2/pile/sep19_pm_ridge_noscale_",i,".csv"))))
+}
+(r.train <- quantile(hs.int[,5],c(0.5)))
+(r.test <-quantile(hs.int[,6],c(0.5)))
+```
+```{r}
+age_tab <-  as.data.frame(read_feather('/well/nichols/users/qcv214/KGPNN/cog/agesex_strat2.feather'))
+train.test.ind <- list()
+train.test.ind$test <- read.csv('/well/nichols/users/qcv214/KGPNN/cog/cog_test_index.csv')$x
+train.test.ind$train <-  read.csv('/well/nichols/users/qcv214/KGPNN/cog/cog_train_index.csv')$x
+```
+###Age
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(tidyr)
+
+# Read data
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/aug30_age_dcv_pms8090_full.csv")
+res2 <- read.csv("/well/nichols/users/qcv214/pms2/pile/aug30_age_dcv_pms8090_full_smooth.csv")
+res2 <-  cbind(res2, matrix(data=NA, nrow=nrow(res2), ncol = (length(res) - length(res2))))
+colnames(res2) <- colnames(res)
+res3 <- read.csv("/well/nichols/users/qcv214/pms2/pile/aug30_age_dcv_nbpms_full.csv")
+res3 <-  cbind(res3, matrix(data=NA, nrow=nrow(res3), ncol = (length(res) - length(res3))))
+colnames(res3) <- colnames(res)
+res4 <- read.csv("/well/nichols/users/qcv214/pms2/pile/sep7_age_dcv_pms90_smooth_shrink.csv")
+res4 <-  cbind(res4, matrix(data=NA, nrow=nrow(res4), ncol = (length(res) - length(res4))))
+colnames(res4) <- colnames(res)
+
+# Define custom color palette
+custom_colors <- c(
+  "PCA 90" = "#E41A1C",        # Red
+  "SPCA 90" = "#377EB8",       # Blue
+  "Ridge" = "#4DAF4A",         # Green
+  "Smooth_PCA 90" = "#984EA3", # Purple
+  "Smooth_SPCA 90" = "#FF7F00",# Orange
+  "Smooth_Ridge" = "#FFFF33",  # Yellow
+  "PMS" = "#A65628",           # Brown
+  "PMS_holp" = "#F781BF",      # Pink
+  "SmoothPCA_Proj" = "#8DD3C7",  # Light teal
+  "SmoothSPCA_Proj" = "#B3DE69", # Light green
+  "SmoothPCA_Cov" = "#FDB462",   # Orange-yellow
+  "SmoothSPCA_Cov" = "#FB8072",   # Salmon pink
+  "SmoothPCA_Corr" = "#66C2A5",  # Medium teal
+  "SmoothSPCA_Corr" = "#FC8D62"  # Dark salmon/orange
+)
+
+# First plot
+resdat <- as.data.frame(rbind(res[1:3,], res2[c(1:3),], res3[1:2, ], res4[1:6, ]))
+num.vox.vec <- (1:50)*200
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge', 'Smooth_PCA 90','Smooth_SPCA 90','Smooth_Ridge','PMS','PMS_holp'
+                   ,'SmoothPCA_Proj','SmoothSPCA_Proj','SmoothPCA_Cov','SmoothSPCA_Cov', "SmoothPCA_Corr", "SmoothSPCA_Corr")
+
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the first line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  geom_hline(aes(yintercept = 0.9114, color = "Ridge"), linetype = "dashed", size = 1) +
+  geom_hline(aes(yintercept = sd(age_tab$age[train.test.ind$train]), color = "sd response"), linetype = "dashed", size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Second plot
+resdat <- as.data.frame(rbind(res[4:6,], res2[c(4:6),], res3[3:4, ], res4[7:12, ]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge', 'Smooth_PCA 90','Smooth_SPCA 90','Smooth_Ridge','PMS','PMS_holp'
+                   ,'SmoothPCA_Proj','SmoothSPCA_Proj','SmoothPCA_Cov','SmoothSPCA_Cov', "SmoothPCA_Corr", "SmoothSPCA_Corr")
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the second line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  geom_hline(aes(yintercept = 4.4875, color = "Ridge"), linetype = "dashed", size = 1) +
+  geom_hline(aes(yintercept = sd(age_tab$age[train.test.ind$test]), color = "sd response"), linetype = "dashed", size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+Ranking is still exact same, so ridge - spca - smooth ridge - smooth spca
+
+###pm
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(tidyr)
+
+# Read data
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/aug30_pm_dcv_pms8090_full.csv")
+res2 <- read.csv("/well/nichols/users/qcv214/pms2/pile/aug30_pm_dcv_pms8090_full_smooth.csv")
+res2 <-  cbind(res2, matrix(data=NA, nrow=nrow(res2), ncol = (length(res) - length(res2))))
+colnames(res2) <- colnames(res)
+res3 <- read.csv("/well/nichols/users/qcv214/pms2/pile/aug30_pm_dcv_nbpms_full.csv")
+res3 <-  cbind(res3, matrix(data=NA, nrow=nrow(res3), ncol = (length(res) - length(res3))))
+colnames(res3) <- colnames(res)
+res4 <- read.csv("/well/nichols/users/qcv214/pms2/pile/sep7pmdcv_pms90_smooth_shrink.csv")
+res4 <-  cbind(res4, matrix(data=NA, nrow=nrow(res4), ncol = (length(res) - length(res4))))
+colnames(res4) <- colnames(res)
+
+# Define custom color palette
+custom_colors <- c(
+  "PCA 90" = "#E41A1C",        # Red
+  "SPCA 90" = "#377EB8",       # Blue
+  "Ridge" = "#4DAF4A",         # Green
+  "Smooth_PCA 90" = "#984EA3", # Purple
+  "Smooth_SPCA 90" = "#FF7F00",# Orange
+  "Smooth_Ridge" = "#FFFF33",  # Yellow
+  "PMS" = "#A65628",           # Brown
+  "PMS_holp" = "#F781BF",      # Pink
+  "SmoothPCA_Proj" = "#8DD3C7",  # Light teal
+  "SmoothSPCA_Proj" = "#B3DE69", # Light green
+  "SmoothPCA_Cov" = "#FDB462",   # Orange-yellow
+  "SmoothSPCA_Cov" = "#FB8072",   # Salmon pink
+  "SmoothPCA_Corr" = "#66C2A5",  # Medium teal
+  "SmoothSPCA_Corr" = "#FC8D62"  # Dark salmon/orange
+)
+
+# First plot
+resdat <- as.data.frame(rbind(res[1:3,], res2[c(1:3),], res3[1:2, ], res4[1:6, ]))
+num.vox.vec <- (1:50)*200
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge', 'Smooth_PCA 90','Smooth_SPCA 90','Smooth_Ridge','PMS','PMS_holp'
+                   ,'SmoothPCA_Proj','SmoothSPCA_Proj','SmoothPCA_Cov','SmoothSPCA_Cov', "SmoothPCA_Corr", "SmoothSPCA_Corr")
+
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the first line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  geom_hline(aes(yintercept = 0.9997, color = "Ridge"), linetype = "dashed", size = 1) +
+  geom_hline(aes(yintercept = sd(age_tab$pm_tf[train.test.ind$train]), color = "sd response"), linetype = "dashed", size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Second plot
+resdat <- as.data.frame(rbind(res[4:6,], res2[c(4:6),], res3[3:4, ], res4[7:12, ]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge', 'Smooth_PCA 90','Smooth_SPCA 90','Smooth_Ridge','PMS','PMS_holp'
+                   ,'SmoothPCA_Proj','SmoothSPCA_Proj','SmoothPCA_Cov','SmoothSPCA_Cov', "SmoothPCA_Corr", "SmoothSPCA_Corr")
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the second line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  geom_hline(aes(yintercept = 1.0639, color = "Ridge"), linetype = "dashed", size = 1) +
+  geom_hline(aes(yintercept = sd(age_tab$pm_tf[train.test.ind$test]), color = "sd response"), linetype = "dashed", size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+For pm with co.dat, I need to regress it out I suppose during the screening as well. 
+In fact, let's keep it simple for now. Let's just include co.dat for prediction
+`sep 20`
+//`co_pm_pms_full_shrink.R` 12476111
+//`co_pm_pms_full_raw_pms.R` 12476372
+
+## Simulation
+
+//`sim_binmask_sens4_reverse.R` sep20_test 12322226 ==> this is just to test having the order reverse, since some methods seem to have the order reversed.
+//`sim_binmask_sens4_reverse_pms.R` 12337426 ==> fixing the pms
+
+For all recent viz of that period, I move it to folder sep10
+
+I think current results is bad (for pca and spca) due to low var in unif(), for PMS and holp, they are good when number of selected param is like 5k?
+I will change binmask from runif 0.1 (var = 1/1200) to runif 6 (var = 3)
+
+Running
+//sep20 12361082
+
+Also for only 100 predictions, I have created `sim_binmask_v.R`
+//sep20_v100 12361220
+
+
+#21 Sep
+##Assessing the result of runif(6)
+```{r}
+if (!require("pacman")) {install.packages("pacman");library(pacman)}
+p_load(PMS)
+# Define the parameters
+signal_types <- c("binmask","dbmask","gaussmask", "sparsemask","SPCAmask")
+
+methods <- c("PCA90", "SPCA90", "PCA90_smooth", "SPCA90_smooth", "ridge", "ridge_smooth", "pmshi", "holp","tmap",
+             "PCA90_smooth_proj", "PCA90_smooth_cov","SPCA90_smooth_proj", "SPCA90_smooth_cov")
+rsquares <- c(1,0.5,0.9)
+base_path <- "/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_"
+
+# Initialize a data frame to store the results
+results <- data.frame(
+  SignalType = character(),
+  Method = character(),
+  SignalStrength = numeric(),
+  Overlap = numeric(),
+  FPR = numeric(),
+  FDR = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (a in signal_types) {
+
+  ########
+  
+  for (b in methods) {
+    for (c in rsquares) {
+      # Determine (d) based on the method
+
+      # Construct the file path
+      file_path <- paste0(base_path, a, "_", "rank_str", c, "_", b, ".nii.gz")
+      ####
+      rank.vec <- c(fast_read_imgs_mask(file_path, '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+      rank.vec <- order(rank.vec, decreasing = TRUE)
+      # Define the mask.signal based on signal type
+      if (a == "binmask") {
+        mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.index <- (mask.vec %in% c(4, 15))
+        mask.signal <- which(mask.index)
+      } else if (a == "dbmask") {
+        mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.index <- (mask.vec %in% c(4, 19))
+        mask.signal <- which(mask.index)
+      } else if (a == "gaussmask") {
+        mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.index <- (mask.vec %in% c(4, 15))
+        mask.signal <- which(mask.index)
+      } else if (a == "sparsemask") {
+        mask.signal <- seq(1, length(rank.vec), 10) # Signal every 10th voxel
+      } else if (a == "SPCAmask" || a == "SPCAcoefmask" ) {
+        mask.rank <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/sim/aug21_500_age_rank_SPCA90_smooth.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.signal <- order(mask.rank,decreasing = TRUE)[1:1600]
+      }
+
+      # Compute accuracy metrics
+      metrics <- accuracy_cal(rank.vec = rank.vec, mask.signal = mask.signal)
+
+      # Store the results in the data frame
+      results <- rbind(results, data.frame(
+        SignalType = a,
+        Method = b,
+        SignalStrength = c,
+        Overlap = metrics$overlap,
+        FPR = metrics$FPR,
+        FDR = metrics$FDR
+      ))
+    }
+  }
+}
+# Save the results as a CSV file
+# write.csv(results, "/well/nichols/users/qcv214/pms2/viz/sim/sensitivity_results.csv", row.names = FALSE)
+
+```
+
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "ridge_smooth" = "#77868e",
+  "pmshi" = "#e6ab02",
+  "holp" = "#a6761d",
+  "tmap" = "#466791",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69", # Light green
+  "SPCA90_smooth_proj" = "#FDB462",   # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each SignalType and create a separate plot
+for (signal_type in signal_types) {
+  # Filter the results for the current SignalType
+  signal_data <- subset(results, SignalType == signal_type)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap, color = Method)) +
+    geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+    ylim(0,100) +
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("Power vs R-square -", signal_type),
+         x = "R-square",
+         y = "Power",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+  # Save the plot to a file
+  # ggsave(filename = paste0("/well/nichols/users/qcv214/pms2/viz/sim/", signal_type, "_sensitivity_plot.png"),
+  #        plot = p, width = 8, height = 6)
+}
+```
+
+As expected.
+FPR
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "ridge_smooth" = "#77868e",
+  "pmshi" = "#e6ab02",
+  "holp" = "#a6761d",
+  "tmap" = "#466791",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69", # Light green
+  "SPCA90_smooth_proj" = "#FDB462",   # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each SignalType and create a separate plot
+for (signal_type in signal_types) {
+  # Filter the results for the current SignalType
+  signal_data <- subset(results, SignalType == signal_type)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = SignalStrength, y = FPR, color = Method)) +
+    geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+    ylim(0,15) +
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("FPR vs R-square -", signal_type),
+         x = "R-square",
+         y = "FPR",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+  # Save the plot to a file
+  # ggsave(filename = paste0("/well/nichols/users/qcv214/pms2/viz/sim/", signal_type, "_sensitivity_plot.png"),
+  #        plot = p, width = 8, height = 6)
+}
+```
+
+
+I will start running other sim
+
+//`sim_gaussmask_sens4.R`   12485618
+//`sim_dbmask_sens4.R`      12485718
+//`sim_sparsemask_sens4.R`  12485819  
+//`sim_SPCAmask_sens4.R`    12485775 
+
+Created `sim_binmask_vn.R` for assessing variable 100, n varying from 100 to 500
+//sep21_v100_n... 12482009
+
+###pm
+I just realised that I miss smooth PCA smooth SPCA
+```{r}
+library(feather)
+age_tab <-  as.data.frame(read_feather('/well/nichols/users/qcv214/KGPNN/cog/agesex_strat2.feather'))
+train.test.ind <- list()
+train.test.ind$test <- read.csv('/well/nichols/users/qcv214/KGPNN/cog/cog_test_index.csv')$x
+train.test.ind$train <-  read.csv('/well/nichols/users/qcv214/KGPNN/cog/cog_train_index.csv')$x
+```
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(tidyr)
+
+# Read data
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/sep20_pm_dcv_pms8090_full.csv")
+res3 <- read.csv("/well/nichols/users/qcv214/pms2/pile/sep20_pm_dcv_nbpms_full.csv")
+res3 <-  cbind(res3, matrix(data=NA, nrow=nrow(res3), ncol = (length(res) - length(res3))))
+colnames(res3) <- colnames(res)
+res4 <- read.csv("/well/nichols/users/qcv214/pms2/pile/sep20_pm_dcv_pms90_smooth_shrink.csv")
+res4 <-  cbind(res4, matrix(data=NA, nrow=nrow(res4), ncol = (length(res) - length(res4))))
+colnames(res4) <- colnames(res)
+
+# Define custom color palette
+custom_colors <- c(
+  "PCA 90" = "#E41A1C",        # Red
+  "SPCA 90" = "#377EB8",       # Blue
+  "Ridge" = "#4DAF4A",         # Green
+  # "Smooth_PCA 90" = "#984EA3", # Purple
+  # "Smooth_SPCA 90" = "#FF7F00",# Orange
+  "Smooth_Ridge" = "#FFFF33",  # Yellow
+  "PMS" = "#A65628",           # Brown
+  "PMS_holp" = "#F781BF",      # Pink
+  "SmoothPCA_Proj" = "#8DD3C7",  # Light teal
+  "SmoothSPCA_Proj" = "#B3DE69", # Light green
+  "SmoothPCA_Cov" = "#FDB462",   # Orange-yellow
+  "SmoothSPCA_Cov" = "#FB8072",   # Salmon pink
+  "SmoothPCA_Corr" = "#66C2A5",  # Medium teal
+  "SmoothSPCA_Corr" = "#FC8D62"  # Dark salmon/orange
+)
+
+# First plot
+resdat <- as.data.frame(rbind(res[1:3,], res3[1:2, ], res4[1:7, ]))
+num.vox.vec <- (1:50)*200
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge','PMS','PMS_holp','Smooth_Ridge'
+                   ,'SmoothPCA_Proj','SmoothSPCA_Proj','SmoothPCA_Cov','SmoothSPCA_Cov', "SmoothPCA_Corr", "SmoothSPCA_Corr")
+
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the first line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  geom_hline(aes(yintercept = 0.9997, color = "Ridge"), linetype = "dashed", size = 1) +
+  geom_hline(aes(yintercept = sd(age_tab$pm_tf[train.test.ind$train]), color = "sd response"), linetype = "dashed", size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Second plot
+resdat <- as.data.frame(rbind(res[4:6,], res3[3:4, ], res4[8:14, ]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge','PMS','PMS_holp','Smooth_Ridge'
+                   ,'SmoothPCA_Proj','SmoothSPCA_Proj','SmoothPCA_Cov','SmoothSPCA_Cov', "SmoothPCA_Corr", "SmoothSPCA_Corr")
+
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the second line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  geom_hline(aes(yintercept = 1.0639, color = "Ridge"), linetype = "dashed", size = 1) +
+  geom_hline(aes(yintercept = sd(age_tab$pm_tf[train.test.ind$test]), color = "sd response"), linetype = "dashed", size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+I think co.dat is not helping because of categorical variables. Let's keep it continuous variable
+`sep21_pm`
+// 12870731 ==> removing omeg and correlation as well to prevent oom
+//12615441
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(tidyr)
+
+# Read data
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/sep21_pm_dcv_pms8090_full.csv")
+res3 <- read.csv("/well/nichols/users/qcv214/pms2/pile/sep21_pm_dcv_nbpms_full.csv")
+res3 <-  cbind(res3, matrix(data=NA, nrow=nrow(res3), ncol = (length(res) - length(res3))))
+colnames(res3) <- colnames(res)
+res4 <- read.csv("/well/nichols/users/qcv214/pms2/pile/sep21_pm_dcv_pms90_smooth_shrink.csv")
+res4 <-  cbind(res4, matrix(data=NA, nrow=nrow(res4), ncol = (length(res) - length(res4))))
+colnames(res4) <- colnames(res)
+
+# Define custom color palette
+custom_colors <- c(
+  "PCA 90" = "#E41A1C",        # Red
+  "SPCA 90" = "#377EB8",       # Blue
+  "Ridge" = "#4DAF4A",         # Green
+  "Smooth_PCA" = "#984EA3", # Purple
+  "Smooth_SPCA" = "#FF7F00",# Orange
+  "Smooth_Ridge" = "#FFFF33",  # Yellow
+  "PMS" = "#A65628",           # Brown
+  "PMS_holp" = "#F781BF",      # Pink
+  "SmoothPCA_Proj" = "#8DD3C7",  # Light teal
+  "SmoothSPCA_Proj" = "#B3DE69", # Light green
+  "SmoothPCA_Cov" = "#FDB462",   # Orange-yellow
+  "SmoothSPCA_Cov" = "#FB8072"   # Salmon pink
+  # "SmoothPCA_Corr" = "#66C2A5",  # Medium teal
+  # "SmoothSPCA_Corr" = "#FC8D62"  # Dark salmon/orange
+)
+
+# First plot
+resdat <- as.data.frame(rbind(res[1:3,], res3[1:2, ], res4[1:7, ]))
+num.vox.vec <- (1:50)*200
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge','PMS','PMS_holp','Smooth_Ridge','Smooth_PCA','Smooth_SPCA'
+                   ,'SmoothPCA_Proj','SmoothSPCA_Proj','SmoothPCA_Cov','SmoothSPCA_Cov')
+
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the first line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  geom_hline(aes(yintercept = 0.9997, color = "Ridge"), linetype = "dashed", size = 1) +
+  geom_hline(aes(yintercept = sd(age_tab$pm_tf[train.test.ind$train]), color = "sd response"), linetype = "dashed", size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Second plot
+resdat <- as.data.frame(rbind(res[4:6,], res3[3:4, ], res4[8:14, ]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge','PMS','PMS_holp','Smooth_Ridge','Smooth_PCA','Smooth_SPCA'
+                   ,'SmoothPCA_Proj','SmoothSPCA_Proj','SmoothPCA_Cov','SmoothSPCA_Cov')
+
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the second line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  geom_hline(aes(yintercept = 1.0639, color = "Ridge"), linetype = "dashed", size = 1) +
+  geom_hline(aes(yintercept = sd(age_tab$pm_tf[train.test.ind$test]), color = "sd response"), linetype = "dashed", size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+##loading v100_n
+Perhaps fix R^2 = 0.9
+
+Vary the n below to match n
+```{r}
+accuracy_cal_n <- function(rank.vec,num.subject, mask.signal) {
+  # Determine the number of top indices to consider
+  n <- length(mask.signal)
+  
+  # Take the top n indices from rank.vec
+  top_n <- rank.vec[1:num.subject]
+    
+  # Compute True Positives (TP)
+  TP <- length(intersect(top_n, mask.signal))
+  
+  # Compute Overlap as the percentage of true positives
+  overlap <- round(TP * 100 / n, 3)
+  
+  # Return the results as a named list
+  return(overlap)
+}
+```
+
+True v is 100, n goes from 100 to 500
+
+```{r}
+if (!require("pacman")) {install.packages("pacman");library(pacman)}
+p_load(PMS)
+# Define the parameters
+sample.size <- (1:5)*100
+
+methods <- c("PCA90", "SPCA90", "PCA90_smooth", "SPCA90_smooth", "ridge", "ridge_smooth", "pmshi", "holp","tmap",
+             "PCA90_smooth_proj", "PCA90_smooth_cov","SPCA90_smooth_proj", "SPCA90_smooth_cov")
+rsquares <- c(1,0.5,0.9)
+
+base_path <- "/well/nichols/users/qcv214/pms2/viz/sim/sep21_v100_n" 
+
+# Initialize a data frame to store the results
+results <- data.frame(
+  SignalType = character(),
+  Method = character(),
+  SignalStrength = numeric(),
+  Overlap = numeric(),
+  FPR = numeric(),
+  FDR = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (a in sample.size) {
+  ########
+  for (b in methods) {
+    for (c in rsquares) {
+      # Construct the file path
+      file_path <- paste0(base_path, a, "_500_binmask_", "rank_str", c, "_", b, ".nii.gz")
+      ####
+      rank.vec <- c(fast_read_imgs_mask(file_path, '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+      rank.vec <- order(rank.vec, decreasing = TRUE)
+      # Define the mask.signal based on signal type
+      mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+      mask.index <- (mask.vec %in% c(4, 15))
+      mask.signal <- which(mask.index)[1:100]
+
+      # Compute accuracy metrics
+      metrics <- accuracy_cal_n(rank.vec = rank.vec,num.subject = a , mask.signal = mask.signal)
+
+      # Store the results in the data frame
+      results <- rbind(results, data.frame(
+        SampleSize = a,
+        Method = b,
+        SignalStrength = c,
+        Overlap = metrics
+      ))
+    }
+  }
+}
+# Save the results as a CSV file
+# write.csv(results, "/well/nichols/users/qcv214/pms2/viz/sim/sensitivity_results.csv", row.names = FALSE)
+
+```
+
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "ridge_smooth" = "#77868e",
+  "pmshi" = "#e6ab02",
+  "holp" = "#a6761d",
+  "tmap" = "#466791",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69", # Light green
+  "SPCA90_smooth_proj" = "#FDB462",   # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Unique Signal Types
+signal_strengths <- unique(results$SignalStrength)
+# sample_sizes <- unique(results$SampleSize)
+# Loop through each SignalType and create a separate plot
+for (signal_strength in signal_strengths) {
+  # Filter the results for the current SignalType
+  # signal_data <- subset(results, SampleSize == sample_sizes)
+  signal_data <- subset(results, SignalStrength == signal_strength)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = SampleSize, y = Overlap, color = Method)) +
+    geom_line(size = 1) +  # Make the lines bolder with size = 1.5
+    ylim(0,100) +
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("Power vs No. Samples - R^2 = ", signal_strength),
+         x = "No. Samples",
+         y = "Power",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+  # Save the plot to a file
+  # ggsave(filename = paste0("/well/nichols/users/qcv214/pms2/viz/sim/", signal_type, "_sensitivity_plot.png"),
+  #        plot = p, width = 8, height = 6)
+}
+```
+The smooth cov and proj are the best. Ridge, SPCA90, MUA and pms don't perform well.
+This increase in power could come from including number of params and not number of subjects alone, let's try another one with fixing number of param in submodel
+
+
+True v is 100, n goes from 100 to 500
+
+```{r}
+if (!require("pacman")) {install.packages("pacman");library(pacman)}
+p_load(PMS)
+# Define the parameters
+sample.size <- (1:5)*100
+
+methods <- c("PCA90", "SPCA90", "PCA90_smooth", "SPCA90_smooth", "ridge", "ridge_smooth", "pmshi", "holp","tmap",
+             "PCA90_smooth_proj", "PCA90_smooth_cov","SPCA90_smooth_proj", "SPCA90_smooth_cov")
+rsquares <- c(1,0.5,0.9)
+
+base_path <- "/well/nichols/users/qcv214/pms2/viz/sim/sep21_v100_n" 
+
+# Initialize a data frame to store the results
+results <- data.frame(
+  SignalType = character(),
+  Method = character(),
+  SignalStrength = numeric(),
+  Overlap = numeric(),
+  FPR = numeric(),
+  FDR = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (a in sample.size) {
+  ########
+  for (b in methods) {
+    for (c in rsquares) {
+      # Construct the file path
+      file_path <- paste0(base_path, a, "_500_binmask_", "rank_str", c, "_", b, ".nii.gz")
+      ####
+      rank.vec <- c(fast_read_imgs_mask(file_path, '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+      rank.vec <- order(rank.vec, decreasing = TRUE)
+      # Define the mask.signal based on signal type
+      mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+      mask.index <- (mask.vec %in% c(4, 15))
+      mask.signal <- which(mask.index)[1:100]
+
+      # Compute accuracy metrics
+      metrics <- accuracy_cal(rank.vec = rank.vec, mask.signal = mask.signal)
+
+      # Store the results in the data frame
+      results <- rbind(results, data.frame(
+        SampleSize = a,
+        Method = b,
+        SignalStrength = c,
+        Overlap = metrics$overlap
+      ))
+    }
+  }
+}
+# Save the results as a CSV file
+# write.csv(results, "/well/nichols/users/qcv214/pms2/viz/sim/sensitivity_results.csv", row.names = FALSE)
+
+```
+
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "ridge_smooth" = "#77868e",
+  "pmshi" = "#e6ab02",
+  "holp" = "#a6761d",
+  "tmap" = "#466791",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69", # Light green
+  "SPCA90_smooth_proj" = "#FDB462",   # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Unique Signal Types
+signal_strengths <- unique(results$SignalStrength)
+# sample_sizes <- unique(results$SampleSize)
+# Loop through each SignalType and create a separate plot
+for (signal_strength in signal_strengths) {
+  # Filter the results for the current SignalType
+  # signal_data <- subset(results, SampleSize == sample_sizes)
+  signal_data <- subset(results, SignalStrength == signal_strength)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = SampleSize, y = Overlap, color = Method)) +
+    geom_line(size = 1) +  # Make the lines bolder with size = 1.5
+    ylim(0,100) +
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("Power vs No. Samples - R^2 = ", signal_strength),
+         x = "No. Samples",
+         y = "Power",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+  # Save the plot to a file
+  # ggsave(filename = paste0("/well/nichols/users/qcv214/pms2/viz/sim/", signal_type, "_sensitivity_plot.png"),
+  #        plot = p, width = 8, height = 6)
+}
+```
+ Ridge, SPCA90, MUA and pms don't perform well again, but HOLP is best now, followed by PCA90
+
+
+#24 sep
+Correcting simulation run => adjust the correct variance 
+//`sim_gaussmask_sens4.R`   13108383
+//`sim_dbmask_sens4.R`      13108388
+//`sim_sparsemask_sens4.R`  13108964  
+//`sim_SPCAmask_sens4.R`     13108968
+
+
+##Another simulation measure
+WE can count how many and plot a bar chart, how many variables to include until the variable screening model discover all signals.
+In SIS paper, this should be random (im guessing the signal) computed over 500 random runs and plot distribution.
+For our case, we could run it 500 times with data being random?
+
+new function
+```{r}
+find_shortest_subarray_length <- function(rank.vec, mask.signal) {
+  # Initialize an empty set to track found elements from mask.signal
+  found_signals <- integer(0)
+  # Iterate over rank.vec to find the shortest subarray
+  for (i in seq_along(rank.vec)) {
+    # If the current element in rank.vec is part of mask.signal, add it to found_signals
+    if (rank.vec[i] %in% mask.signal) {
+      found_signals <- unique(c(found_signals, rank.vec[i]))
+    }
+    # Check if all elements of mask.signal are found
+    if (length(found_signals) == length(mask.signal)) {
+      return(i)  # Return the index, which represents the length of the subarray
+    }
+  }
+  # If the loop completes without finding all elements, return NA or a message
+  return(NA)  # This means not all elements of mask.signal were found
+}
+```
+
+```{r}
+if (!require("pacman")) {install.packages("pacman");library(pacman)}
+p_load(PMS)
+# Define the parameters
+signal_types <- c("binmask","dbmask","gaussmask", "sparsemask","SPCAmask")
+
+methods <- c("PCA90", "SPCA90", "PCA90_smooth", "SPCA90_smooth", "ridge", "ridge_smooth", "pmshi", "holp","tmap",
+             "PCA90_smooth_proj", "PCA90_smooth_cov","SPCA90_smooth_proj", "SPCA90_smooth_cov")
+rsquares <- c(1,0.5,0.9)
+base_path <- "/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_"
+
+# Initialize a data frame to store the results
+results <- data.frame(
+  SignalType = character(),
+  Method = character(),
+  SignalStrength = numeric(),
+  Overlap = numeric(),
+  FPR = numeric(),
+  FDR = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (a in signal_types) {
+
+  ########
+  
+  for (b in methods) {
+    for (c in rsquares) {
+      # Determine (d) based on the method
+
+      # Construct the file path
+      file_path <- paste0(base_path, a, "_", "rank_str", c, "_", b, ".nii.gz")
+      ####
+      rank.vec <- c(fast_read_imgs_mask(file_path, '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+      rank.vec <- order(rank.vec, decreasing = TRUE)
+      # Define the mask.signal based on signal type
+      if (a == "binmask") {
+        mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.index <- (mask.vec %in% c(4, 15))
+        mask.signal <- which(mask.index)
+      } else if (a == "dbmask") {
+        mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.index <- (mask.vec %in% c(4, 19))
+        mask.signal <- which(mask.index)
+      } else if (a == "gaussmask") {
+        mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.index <- (mask.vec %in% c(4, 15))
+        mask.signal <- which(mask.index)
+      } else if (a == "sparsemask") {
+        mask.signal <- seq(1, length(rank.vec), 10) # Signal every 10th voxel
+      } else if (a == "SPCAmask" || a == "SPCAcoefmask" ) {
+        mask.rank <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/sim/aug21_500_age_rank_SPCA90_smooth.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.signal <- order(mask.rank,decreasing = TRUE)[1:1600]
+      }
+
+      # Compute accuracy metrics
+      metrics <- find_shortest_subarray_length(rank.vec = rank.vec, mask.signal = mask.signal)
+
+      # Store the results in the data frame
+      results <- rbind(results, data.frame(
+        SignalType = a,
+        Method = b,
+        SignalStrength = c,
+        NumSub = metrics
+      ))
+    }
+  }
+}
+# Save the results as a CSV file
+# write.csv(results, "/well/nichols/users/qcv214/pms2/viz/sim/sensitivity_results.csv", row.names = FALSE)
+
+```
+
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "ridge_smooth" = "#77868e",
+  "pmshi" = "#e6ab02",
+  "holp" = "#a6761d",
+  "tmap" = "#466791",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69", # Light green
+  "SPCA90_smooth_proj" = "#FDB462",   # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each SignalType and create a separate plot
+for (signal_type in signal_types) {
+  # Filter the results for the current SignalType
+  signal_data <- subset(results, SignalType == signal_type)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap, color = Method)) +
+    geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+    ylim(0,100) +
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("Power vs R-square -", signal_type),
+         x = "R-square",
+         y = "Power",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+  # Save the plot to a file
+  # ggsave(filename = paste0("/well/nichols/users/qcv214/pms2/viz/sim/", signal_type, "_sensitivity_plot.png"),
+  #        plot = p, width = 8, height = 6)
+}
+```
+```{r}
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "ridge_smooth" = "#77868e",
+  "pmshi" = "#e6ab02",
+  "holp" = "#a6761d",
+  "tmap" = "#466791",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69", # Light green
+  "SPCA90_smooth_proj" = "#FDB462",   # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each SignalType and create a separate plot
+for (signal_type in signal_types) {
+  # Filter the results for the current SignalType
+  signal_data <- subset(results, SignalType == signal_type)
+  
+  # Create the barplot with a horizontal line at y = 15847
+  p <- ggplot(signal_data, aes(x = as.factor(SignalStrength), y = NumSub, fill = Method)) +
+    geom_bar(stat = "identity", position = "dodge", color = "black") +  # Barplot with distinct groups
+    geom_hline(aes(yintercept = 15847, color = "Max Predictors"), linetype = "dashed", size = 1) +  # Add horizontal line
+    scale_fill_manual(values = custom_colors) +  # Use custom fill colors
+    scale_color_manual(name = "Reference Line", values = c("Max Predictors" = "red")) +  # Add color for the line in legend
+    theme_minimal() +
+    labs(title = paste("Number of Subarray Lengths vs R-square -", signal_type),
+         x = "R-square",
+         y = "Number of Subarray Lengths",
+         fill = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    ) +
+    guides(color = guide_legend(override.aes = list(linetype = "dashed")))  # Adjust the legend for the line
+  
+  # Display the plot
+  print(p)
+}
+```
+So in terms of separting meaningful and non-meaningful. These methods apart from HOLP are terrible. Maybe due to smoothing or structural dependency??
+
+```{r}
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "ridge_smooth" = "#77868e",
+  "pmshi" = "#e6ab02",
+  "holp" = "#a6761d",
+  "tmap" = "#466791",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69", # Light green
+  "SPCA90_smooth_proj" = "#FDB462",   # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Define the number of true predictors for each signal type
+true_predictors <- c("binmask" = 1867, "dbmask" = 1718, "gaussmask" = 1867, "sparsemask" = 1585, "SPCAmask" = 1600)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each SignalType and create a separate plot
+for (signal_type in signal_types) {
+  # Filter the results for the current SignalType
+  signal_data <- subset(results, SignalType == signal_type)
+  
+  # Extract the true predictor value for the current signal type
+  true_predictor_value <- true_predictors[signal_type]
+  
+  # Create the barplot with horizontal lines
+  p <- ggplot(signal_data, aes(x = as.factor(SignalStrength), y = NumSub, fill = Method)) +
+    geom_bar(stat = "identity", position = "dodge", color = "black") +  # Barplot with distinct groups
+    
+    # Add horizontal line for Max Predictors (15847)
+    geom_hline(aes(yintercept = 15847, color = "Max Predictors"), linetype = "dashed", size = 1) +
+    
+    # Add horizontal line for True Predictors (based on signal_type)
+    geom_hline(aes(yintercept = true_predictor_value, color = "True Predictors"), linetype = "dotted", size = 1) +
+    
+    scale_fill_manual(values = custom_colors) +  # Use custom fill colors
+    scale_color_manual(name = "Reference Lines", values = c("Max Predictors" = "red", "True Predictors" = "blue")) +  # Add color for the lines in the legend
+    theme_minimal() +
+    labs(title = paste("Number of Subarray Lengths vs R-square -", signal_type),
+         x = "R-square",
+         y = "Number of Subarray Lengths",
+         fill = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    ) +
+    
+    # Adjust the legend for the reference lines
+    guides(color = guide_legend(override.aes = list(linetype = c("dashed", "dotted"))))
+  
+  # Display the plot
+  print(p)
+}
+```
+
+##Viz for real data pm
+I created `/well/nichols/users/qcv214/pms2/viz/sep21_real` which include all co_pm (but co shouldnt matter) viz
+
+let's look at summary of smooth ridge since it's too good
+```{r}
+sm.ridge <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/sep24_pm_dcv_smooth_ridge.nii.gz','/well/nichols/users/qcv214/bnn2/res3/res3mask.nii.gz'))
+summary(sm.ridge)
+```
+All coef are effectively 0. Does smooth ridge just use co.dat to predict pm?
+I can check it here since it's small
+### Fitting ridge on co.dat data
+```{r}
+library(feather)
+library(glmnet)
+age_tab <-  as.data.frame(read_feather('/well/nichols/users/qcv214/KGPNN/cog/agesex_strat2.feather'))
+train.test.ind <- list()
+train.test.ind$test <- read.csv('/well/nichols/users/qcv214/KGPNN/cog/cog_test_index.csv')$x
+train.test.ind$train <-  read.csv('/well/nichols/users/qcv214/KGPNN/cog/cog_train_index.csv')$x
+age <- as.numeric(age_tab$age)
+sex <-  as.numeric(age_tab$sex)
+sex <- sapply(sex, function(x) replace(x, x==0,-1)) #Change female to -1, male to 1
+depind <- age_tab$DepInd
+co.dat <- cbind(sex,depind,age)
+#response 
+pm_tf <- age_tab$pm_tf
+
+mod.ridge <-  cv.glmnet(co.dat[train.test.ind$train, ],pm_tf[train.test.ind$train], alpha=0)  #fixing lambda
+  beta <- coef(mod.ridge, s = "lambda.min")
+  rmse.train <- sqrt(mean((as.numeric(pm_tf[train.test.ind$train] - cbind(1,co.dat[train.test.ind$train, ])%*%beta))^2))
+  rmse.test <- sqrt(mean((as.numeric(pm_tf[train.test.ind$test] - cbind(1,co.dat[train.test.ind$test, ])%*%beta))^2))
+```
+train 0.96 and test 1.03 ==> these are actually better than all imaging
+
+##Notes
+I have noticed that smooth PCA is wrong in co.pm => corrected.
+Also added rank-based PMS.
+`sep24` 
+raw  13628967
+shrink 13628921
+
+creating `sep24_real/` to store the viz
+
+#25 Sep
+Created `gen_age_HOLP_binmask.R` to get realisation of running HOLP on age on Bin mask. Obtaining beta via brain viz and MSE
+//13641246
+
+##load this data
+```{r}
+res <- read.csv('/well/nichols/users/qcv214/pms2/pile/sep25_age_HOLP_binmask_fit.csv')
+res
+```
+from here, inside signal area, Unif(0,0.8) or unif (1) isn't a bad estimate
+The `'/well/nichols/users/qcv214/pms2/viz/sep25_age_HOLP_binmask_fit'` is the mask
+```{r}
+library(PMS)
+library(oro.nifti)
+
+mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+#Defining signal to be around region 4 and 15 
+mask.index <- (mask.vec %in% c(4,15))
+mask.signal <- which(mask.index) #
+
+beta.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/sep25_age_HOLP_binmask_fit.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))[mask.signal]
+summary(beta.vec)
+```
+
+Visualising beta HOLP
+```{r}
+mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz')
+mask.temp[mask.temp > 0][mask.index] <- beta.vec
+mask.temp[mask.temp != 0][!mask.index] <- 0
+mask.temp@datatype = 16
+mask.temp@bitpix = 32
+writeNIfTI(mask.temp,paste0('/well/nichols/users/qcv214/pms2/viz/sep25_age_HOLP_binmask_fit_viz'))
+```
+
+
+#26 sep
+
+## sanity check
+create `sim_binmask_sens4_test1.R` (sep26_test) to check if {beta = 1, unif(0.1) is equivalent to beta = 1/60, unif(6)}
+//13628833
+###Assessing the result of runif(6) beta = 1/60
+```{r}
+if (!require("pacman")) {install.packages("pacman");library(pacman)}
+p_load(PMS)
+# Define the parameters
+signal_types <- c("binmask")
+
+methods <- c("PCA90", "SPCA90", "PCA90_smooth", "SPCA90_smooth", "ridge", "ridge_smooth", "pmshi", "holp","tmap",
+             "PCA90_smooth_proj", "PCA90_smooth_cov","SPCA90_smooth_proj", "SPCA90_smooth_cov")
+rsquares <- c(1,0.5,0.9)
+base_path <- "/well/nichols/users/qcv214/pms2/viz/sim/sep26_test_500_"
+
+# Initialize a data frame to store the results
+results <- data.frame(
+  SignalType = character(),
+  Method = character(),
+  SignalStrength = numeric(),
+  Overlap = numeric(),
+  FPR = numeric(),
+  FDR = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (a in signal_types) {
+
+  ########
+  
+  for (b in methods) {
+    for (c in rsquares) {
+      # Determine (d) based on the method
+
+      # Construct the file path
+      file_path <- paste0(base_path, a, "_", "rank_str", c, "_", b, ".nii.gz")
+      ####
+      rank.vec <- c(fast_read_imgs_mask(file_path, '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+      rank.vec <- order(rank.vec, decreasing = TRUE)
+      # Define the mask.signal based on signal type
+      if (a == "binmask") {
+        mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.index <- (mask.vec %in% c(4, 15))
+        mask.signal <- which(mask.index)
+      } else if (a == "dbmask") {
+        mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.index <- (mask.vec %in% c(4, 19))
+        mask.signal <- which(mask.index)
+      } else if (a == "gaussmask") {
+        mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.index <- (mask.vec %in% c(4, 15))
+        mask.signal <- which(mask.index)
+      } else if (a == "sparsemask") {
+        mask.signal <- seq(1, length(rank.vec), 10) # Signal every 10th voxel
+      } else if (a == "SPCAmask" || a == "SPCAcoefmask" ) {
+        mask.rank <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/sim/aug21_500_age_rank_SPCA90_smooth.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.signal <- order(mask.rank,decreasing = TRUE)[1:1600]
+      }
+
+      # Compute accuracy metrics
+      metrics <- accuracy_cal(rank.vec = rank.vec, mask.signal = mask.signal)
+
+      # Store the results in the data frame
+      results <- rbind(results, data.frame(
+        SignalType = a,
+        Method = b,
+        SignalStrength = c,
+        Overlap = metrics$overlap,
+        FPR = metrics$FPR,
+        FDR = metrics$FDR
+      ))
+    }
+  }
+}
+# Save the results as a CSV file
+# write.csv(results, "/well/nichols/users/qcv214/pms2/viz/sim/sensitivity_results.csv", row.names = FALSE)
+
+```
+
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "ridge_smooth" = "#77868e",
+  "pmshi" = "#e6ab02",
+  "holp" = "#a6761d",
+  "tmap" = "#466791",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69", # Light green
+  "SPCA90_smooth_proj" = "#FDB462",   # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each SignalType and create a separate plot
+for (signal_type in signal_types) {
+  # Filter the results for the current SignalType
+  signal_data <- subset(results, SignalType == signal_type)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap, color = Method)) +
+    geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+    ylim(0,100) +
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("Power vs R-square -", signal_type),
+         x = "R-square",
+         y = "Power",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+  # Save the plot to a file
+  # ggsave(filename = paste0("/well/nichols/users/qcv214/pms2/viz/sim/", signal_type, "_sensitivity_plot.png"),
+  #        plot = p, width = 8, height = 6)
+}
+```
+It's not the same as runif(1) but same as runif(6)
+
+###Assessing the result of runif(6) beta = 1/60
+```{r}
+if (!require("pacman")) {install.packages("pacman");library(pacman)}
+p_load(PMS)
+# Define the parameters
+signal_types <- c("binmask")
+
+methods <- c("PCA90", "SPCA90", "PCA90_smooth", "SPCA90_smooth", "ridge", "ridge_smooth", "pmshi", "holp","tmap",
+             "PCA90_smooth_proj", "PCA90_smooth_cov","SPCA90_smooth_proj", "SPCA90_smooth_cov")
+rsquares <- c(1,0.5,0.9)
+base_path <- "/well/nichols/users/qcv214/pms2/viz/sim/sep20_500_"
+
+# Initialize a data frame to store the results
+results <- data.frame(
+  SignalType = character(),
+  Method = character(),
+  SignalStrength = numeric(),
+  Overlap = numeric(),
+  FPR = numeric(),
+  FDR = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (a in signal_types) {
+
+  ########
+  
+  for (b in methods) {
+    for (c in rsquares) {
+      # Determine (d) based on the method
+
+      # Construct the file path
+      file_path <- paste0(base_path, a, "_", "rank_str", c, "_", b, ".nii.gz")
+      ####
+      rank.vec <- c(fast_read_imgs_mask(file_path, '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+      rank.vec <- order(rank.vec, decreasing = TRUE)
+      # Define the mask.signal based on signal type
+      if (a == "binmask") {
+        mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.index <- (mask.vec %in% c(4, 15))
+        mask.signal <- which(mask.index)
+      } else if (a == "dbmask") {
+        mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.index <- (mask.vec %in% c(4, 19))
+        mask.signal <- which(mask.index)
+      } else if (a == "gaussmask") {
+        mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.index <- (mask.vec %in% c(4, 15))
+        mask.signal <- which(mask.index)
+      } else if (a == "sparsemask") {
+        mask.signal <- seq(1, length(rank.vec), 10) # Signal every 10th voxel
+      } else if (a == "SPCAmask" || a == "SPCAcoefmask" ) {
+        mask.rank <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/sim/aug21_500_age_rank_SPCA90_smooth.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.signal <- order(mask.rank,decreasing = TRUE)[1:1600]
+      }
+
+      # Compute accuracy metrics
+      metrics <- accuracy_cal(rank.vec = rank.vec, mask.signal = mask.signal)
+
+      # Store the results in the data frame
+      results <- rbind(results, data.frame(
+        SignalType = a,
+        Method = b,
+        SignalStrength = c,
+        Overlap = metrics$overlap,
+        FPR = metrics$FPR,
+        FDR = metrics$FDR
+      ))
+    }
+  }
+}
+# Save the results as a CSV file
+# write.csv(results, "/well/nichols/users/qcv214/pms2/viz/sim/sensitivity_results.csv", row.names = FALSE)
+
+```
+
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "ridge_smooth" = "#77868e",
+  "pmshi" = "#e6ab02",
+  "holp" = "#a6761d",
+  "tmap" = "#466791",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69", # Light green
+  "SPCA90_smooth_proj" = "#FDB462",   # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each SignalType and create a separate plot
+for (signal_type in signal_types) {
+  # Filter the results for the current SignalType
+  signal_data <- subset(results, SignalType == signal_type)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap, color = Method)) +
+    geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+    ylim(0,100) +
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("Power vs R-square -", signal_type),
+         x = "R-square",
+         y = "Power",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+  # Save the plot to a file
+  # ggsave(filename = paste0("/well/nichols/users/qcv214/pms2/viz/sim/", signal_type, "_sensitivity_plot.png"),
+  #        plot = p, width = 8, height = 6)
+}
+```
+
+This is strange.
+
+
+## Simulation with HOLP beta
+with this set up, I can actually compute ||beta-true_beta||^2
+created `sim_binmask_sen45` using unif(1) an beta realised from fitting HOLP.
+//sep26_500 13641632 => no beta error yet.
+
+```{r}
+accuracy_cal <- function(rank.vec, mask.signal) {
+  # Determine the number of top indices to consider
+  n <- length(mask.signal)
+  
+  # Take the top n indices from rank.vec
+  top_n <- rank.vec[1:n]
+    
+  # Compute True Positives (TP)
+  TP <- length(intersect(top_n, mask.signal))
+  
+  # Compute Overlap as the percentage of true positives
+  overlap <- round(TP * 100 / n, 3)
+  
+  # Compute False Positives (FP)
+  FP <- length(setdiff(top_n, mask.signal))
+  
+  # Compute False Negatives (FN)
+  FN <- length(setdiff(mask.signal, top_n))
+  
+  # Compute False Positive Rate (FPR)
+  total_non_signal <- length(rank.vec) - n
+  FPR <- round(FP*100 / total_non_signal, 3)
+  
+  # Compute False Discovery Rate (FDR)
+  FDR <- round(FP*100 / (FP + TP), 3)
+  
+  # Return the results as a named list
+  return(list(
+    overlap = overlap,
+    FPR = FPR,
+    FDR = FDR
+  ))
+}
+```
+
+```{r}
+if (!require("pacman")) {install.packages("pacman");library(pacman)}
+p_load(PMS)
+# Define the parameters
+signal_types <- c("binmask")
+
+methods <- c("PCA90", "SPCA90", "PCA90_smooth", "SPCA90_smooth", "ridge", "ridge_smooth", "pmshi", "holp","tmap",
+             "PCA90_smooth_proj", "PCA90_smooth_cov","SPCA90_smooth_proj", "SPCA90_smooth_cov")
+rsquares <- c(1,0.5,0.9)
+base_path <- "/well/nichols/users/qcv214/pms2/viz/sim/sep26_500_"
+
+# Initialize a data frame to store the results
+results <- data.frame(
+  SignalType = character(),
+  Method = character(),
+  SignalStrength = numeric(),
+  Overlap = numeric(),
+  FPR = numeric(),
+  FDR = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (a in signal_types) {
+
+  ########
+  
+  for (b in methods) {
+    for (c in rsquares) {
+      # Determine (d) based on the method
+
+      # Construct the file path
+      file_path <- paste0(base_path, a, "_", "rank_str", c, "_", b, ".nii.gz")
+      ####
+      rank.vec <- c(fast_read_imgs_mask(file_path, '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+      rank.vec <- order(rank.vec, decreasing = TRUE)
+      # Define the mask.signal based on signal type
+      if (a == "binmask") {
+        mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.index <- (mask.vec %in% c(4, 15))
+        mask.signal <- which(mask.index)
+      } else if (a == "dbmask") {
+        mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.index <- (mask.vec %in% c(4, 19))
+        mask.signal <- which(mask.index)
+      } else if (a == "gaussmask") {
+        mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.index <- (mask.vec %in% c(4, 15))
+        mask.signal <- which(mask.index)
+      } else if (a == "sparsemask") {
+        mask.signal <- seq(1, length(rank.vec), 10) # Signal every 10th voxel
+      } else if (a == "SPCAmask" || a == "SPCAcoefmask" ) {
+        mask.rank <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/sim/aug21_500_age_rank_SPCA90_smooth.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.signal <- order(mask.rank,decreasing = TRUE)[1:1600]
+      }
+
+      # Compute accuracy metrics
+      metrics <- accuracy_cal(rank.vec = rank.vec, mask.signal = mask.signal)
+
+      # Store the results in the data frame
+      results <- rbind(results, data.frame(
+        SignalType = a,
+        Method = b,
+        SignalStrength = c,
+        Overlap = metrics$overlap,
+        FPR = metrics$FPR,
+        FDR = metrics$FDR
+      ))
+    }
+  }
+}
+# Save the results as a CSV file
+# write.csv(results, "/well/nichols/users/qcv214/pms2/viz/sim/sensitivity_results.csv", row.names = FALSE)
+
+```
+
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "ridge_smooth" = "#77868e",
+  "pmshi" = "#e6ab02",
+  "holp" = "#a6761d",
+  "tmap" = "#466791",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69", # Light green
+  "SPCA90_smooth_proj" = "#FDB462",   # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each SignalType and create a separate plot
+for (signal_type in signal_types) {
+  # Filter the results for the current SignalType
+  signal_data <- subset(results, SignalType == signal_type)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap, color = Method)) +
+    geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+    # ylim(0,100) +
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("Power vs R-square -", signal_type),
+         x = "R-square",
+         y = "Power",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+  # Save the plot to a file
+  # ggsave(filename = paste0("/well/nichols/users/qcv214/pms2/viz/sim/", signal_type, "_sensitivity_plot.png"),
+  #        plot = p, width = 8, height = 6)
+}
+```
+This plot is decent
+
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "ridge_smooth" = "#77868e",
+  "pmshi" = "#e6ab02",
+  "holp" = "#a6761d",
+  "tmap" = "#466791",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69", # Light green
+  "SPCA90_smooth_proj" = "#FDB462",   # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each SignalType and create a separate plot
+for (signal_type in signal_types) {
+  # Filter the results for the current SignalType
+  signal_data <- subset(results, SignalType == signal_type)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = SignalStrength, y = FPR, color = Method)) +
+    geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+    # ylim(0,100) +
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("FPR vs R-square -", signal_type),
+         x = "R-square",
+         y = "FPR",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+  # Save the plot to a file
+  # ggsave(filename = paste0("/well/nichols/users/qcv214/pms2/viz/sim/", signal_type, "_sensitivity_plot.png"),
+  #        plot = p, width = 8, height = 6)
+}
+```
+
+Created
+`sim_binmask_vn5.R` assessing v = 100 with n = 100,...,500 from true beta
+//oct1_v100_n 14700420
+
+#2 Oct
+True v is 100, n goes from 100 to 500
+
+```{r}
+if (!require("pacman")) {install.packages("pacman");library(pacman)}
+p_load(PMS)
+# Define the parameters
+sample.size <- (1:5)*100
+
+methods <- c("PCA90", "SPCA90", "PCA90_smooth", "SPCA90_smooth", "ridge", "ridge_smooth", "pmshi", "holp","tmap",
+             "PCA90_smooth_proj", "PCA90_smooth_cov","SPCA90_smooth_proj", "SPCA90_smooth_cov")
+rsquares <- c(1,0.5,0.9)
+
+base_path <- "/well/nichols/users/qcv214/pms2/viz/sim/oct1_v100_n" 
+
+# Initialize a data frame to store the results
+results <- data.frame(
+  SignalType = character(),
+  Method = character(),
+  SignalStrength = numeric(),
+  Overlap = numeric(),
+  FPR = numeric(),
+  FDR = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (a in sample.size) {
+  ########
+  for (b in methods) {
+    for (c in rsquares) {
+      # Construct the file path
+      file_path <- paste0(base_path, a, "_500_binmask_", "rank_str", c, "_", b, ".nii.gz")
+      ####
+      rank.vec <- c(fast_read_imgs_mask(file_path, '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+      rank.vec <- order(rank.vec, decreasing = TRUE)
+      # Define the mask.signal based on signal type
+      mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+      mask.index <- (mask.vec %in% c(4, 15))
+      mask.signal <- which(mask.index)[1:100]
+
+      # Compute accuracy metrics
+      metrics <- accuracy_cal(rank.vec = rank.vec, mask.signal = mask.signal)
+
+      # Store the results in the data frame
+      results <- rbind(results, data.frame(
+        SampleSize = a,
+        Method = b,
+        SignalStrength = c,
+        Overlap = metrics$overlap
+      ))
+    }
+  }
+}
+# Save the results as a CSV file
+# write.csv(results, "/well/nichols/users/qcv214/pms2/viz/sim/sensitivity_results.csv", row.names = FALSE)
+
+```
+
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "ridge_smooth" = "#77868e",
+  "pmshi" = "#e6ab02",
+  "holp" = "#a6761d",
+  "tmap" = "#466791",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69", # Light green
+  "SPCA90_smooth_proj" = "#FDB462",   # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Unique Signal Types
+signal_strengths <- unique(results$SignalStrength)
+# sample_sizes <- unique(results$SampleSize)
+# Loop through each SignalType and create a separate plot
+for (signal_strength in signal_strengths) {
+  # Filter the results for the current SignalType
+  # signal_data <- subset(results, SampleSize == sample_sizes)
+  signal_data <- subset(results, SignalStrength == signal_strength)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = SampleSize, y = Overlap, color = Method)) +
+    geom_line(size = 1) +  # Make the lines bolder with size = 1.5
+    ylim(0,70) +
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("Power vs No. Samples - R^2 = ", signal_strength),
+         x = "No. Samples",
+         y = "Power",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+  # Save the plot to a file
+  # ggsave(filename = paste0("/well/nichols/users/qcv214/pms2/viz/sim/", signal_type, "_sensitivity_plot.png"),
+  #        plot = p, width = 8, height = 6)
+}
+```
+oct2_v10_n   14778067 => v 10
+```{r}
+if (!require("pacman")) {install.packages("pacman");library(pacman)}
+p_load(PMS)
+# Define the parameters
+sample.size <- (1:5)*100
+
+methods <- c("PCA90", "SPCA90", "PCA90_smooth", "SPCA90_smooth", "ridge", "ridge_smooth", "pmshi", "holp","tmap",
+             "PCA90_smooth_proj", "PCA90_smooth_cov","SPCA90_smooth_proj", "SPCA90_smooth_cov")
+rsquares <- c(1,0.5,0.9)
+
+base_path <- "/well/nichols/users/qcv214/pms2/viz/sim/oct2_v10_n" 
+
+# Initialize a data frame to store the results
+results <- data.frame(
+  SignalType = character(),
+  Method = character(),
+  SignalStrength = numeric(),
+  Overlap = numeric(),
+  FPR = numeric(),
+  FDR = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (a in sample.size) {
+  ########
+  for (b in methods) {
+    for (c in rsquares) {
+      # Construct the file path
+      file_path <- paste0(base_path, a, "_500_binmask_", "rank_str", c, "_", b, ".nii.gz")
+      ####
+      rank.vec <- c(fast_read_imgs_mask(file_path, '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+      rank.vec <- order(rank.vec, decreasing = TRUE)
+      # Define the mask.signal based on signal type
+      mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+      mask.index <- (mask.vec %in% c(4, 15))
+      mask.signal <- which(mask.index)[1:10]
+
+      # Compute accuracy metrics
+      metrics <- accuracy_cal(rank.vec = rank.vec, mask.signal = mask.signal)
+
+      # Store the results in the data frame
+      results <- rbind(results, data.frame(
+        SampleSize = a,
+        Method = b,
+        SignalStrength = c,
+        Overlap = metrics$overlap
+      ))
+    }
+  }
+}
+# Save the results as a CSV file
+# write.csv(results, "/well/nichols/users/qcv214/pms2/viz/sim/sensitivity_results.csv", row.names = FALSE)
+
+```
+
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "ridge_smooth" = "#77868e",
+  "pmshi" = "#e6ab02",
+  "holp" = "#a6761d",
+  "tmap" = "#466791",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69", # Light green
+  "SPCA90_smooth_proj" = "#FDB462",   # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Unique Signal Types
+signal_strengths <- unique(results$SignalStrength)
+# sample_sizes <- unique(results$SampleSize)
+# Loop through each SignalType and create a separate plot
+for (signal_strength in signal_strengths) {
+  # Filter the results for the current SignalType
+  # signal_data <- subset(results, SampleSize == sample_sizes)
+  signal_data <- subset(results, SignalStrength == signal_strength)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = SampleSize, y = Overlap, color = Method)) +
+    geom_line(size = 1) +  # Make the lines bolder with size = 1.5
+    ylim(0,70) +
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("Power vs No. Samples - R^2 = ", signal_strength),
+         x = "No. Samples",
+         y = "Power",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+  # Save the plot to a file
+  # ggsave(filename = paste0("/well/nichols/users/qcv214/pms2/viz/sim/", signal_type, "_sensitivity_plot.png"),
+  #        plot = p, width = 8, height = 6)
+}
+```
+I think 10 is too little
+
+
+Running 
+oct2_v300 14903630 ==> using  300 true effects and 300-1000 subjects
 
 
 
+#3 Oct
 
+##v= 300
+```{r}
+accuracy_cal <- function(rank.vec, mask.signal) {
+  # Determine the number of top indices to consider
+  n <- length(mask.signal)
+  
+  # Take the top n indices from rank.vec
+  top_n <- rank.vec[1:n]
+    
+  # Compute True Positives (TP)
+  TP <- length(intersect(top_n, mask.signal))
+  
+  # Compute Overlap as the percentage of true positives
+  overlap <- round(TP * 100 / n, 3)
+  
+  # Compute False Positives (FP)
+  FP <- length(setdiff(top_n, mask.signal))
+  
+  # Compute False Negatives (FN)
+  FN <- length(setdiff(mask.signal, top_n))
+  
+  # Compute False Positive Rate (FPR)
+  total_non_signal <- length(rank.vec) - n
+  FPR <- round(FP*100 / total_non_signal, 3)
+  
+  # Compute False Discovery Rate (FDR)
+  FDR <- round(FP*100 / (FP + TP), 3)
+  
+  # Return the results as a named list
+  return(list(
+    overlap = overlap,
+    FPR = FPR,
+    FDR = FDR
+  ))
+}
+```
+```{r}
+if (!require("pacman")) {install.packages("pacman");library(pacman)}
+p_load(PMS)
+# Define the parameters
+sample.size <- (3:10)*100
+
+methods <- c("PCA90", "SPCA90", "PCA90_smooth", "SPCA90_smooth", "ridge", "ridge_smooth", "pmshi", "holp","tmap",
+             "PCA90_smooth_proj", "PCA90_smooth_cov","SPCA90_smooth_proj", "SPCA90_smooth_cov")
+rsquares <- c(1,0.5,0.9)
+
+base_path <- "/well/nichols/users/qcv214/pms2/viz/sim/oct2_v300_n" 
+
+# Initialize a data frame to store the results
+results <- data.frame(
+  SignalType = character(),
+  Method = character(),
+  SignalStrength = numeric(),
+  Overlap = numeric(),
+  FPR = numeric(),
+  FDR = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (a in sample.size) {
+  ########
+  for (b in methods) {
+    for (c in rsquares) {
+      # Construct the file path
+      file_path <- paste0(base_path, a, "_500_binmask_", "rank_str", c, "_", b, ".nii.gz")
+      ####
+      rank.vec <- c(fast_read_imgs_mask(file_path, '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+      rank.vec <- order(rank.vec, decreasing = TRUE)
+      # Define the mask.signal based on signal type
+      mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+      mask.index <- (mask.vec %in% c(4, 15))
+      mask.signal <- which(mask.index)[1:300]
+
+      # Compute accuracy metrics
+      metrics <- accuracy_cal(rank.vec = rank.vec, mask.signal = mask.signal)
+
+      # Store the results in the data frame
+      results <- rbind(results, data.frame(
+        SampleSize = a,
+        Method = b,
+        SignalStrength = c,
+        Overlap = metrics$overlap
+      ))
+    }
+  }
+}
+# Save the results as a CSV file
+# write.csv(results, "/well/nichols/users/qcv214/pms2/viz/sim/sensitivity_results.csv", row.names = FALSE)
+
+```
+17 hours and still running
+
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "ridge_smooth" = "#77868e",
+  "pmshi" = "#e6ab02",
+  "holp" = "#a6761d",
+  "tmap" = "#466791",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69", # Light green
+  "SPCA90_smooth_proj" = "#FDB462",   # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Unique Signal Types
+signal_strengths <- unique(results$SignalStrength)
+# sample_sizes <- unique(results$SampleSize)
+# Loop through each SignalType and create a separate plot
+for (signal_strength in signal_strengths) {
+  # Filter the results for the current SignalType
+  # signal_data <- subset(results, SampleSize == sample_sizes)
+  signal_data <- subset(results, SignalStrength == signal_strength)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = SampleSize, y = Overlap, color = Method)) +
+    geom_line(size = 1) +  # Make the lines bolder with size = 1.5
+    # ylim(0,70) +
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("Power vs No. Samples - R^2 = ", signal_strength),
+         x = "No. Samples",
+         y = "Power",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+  # Save the plot to a file
+  # ggsave(filename = paste0("/well/nichols/users/qcv214/pms2/viz/sim/", signal_type, "_sensitivity_plot.png"),
+  #        plot = p, width = 8, height = 6)
+}
+```
+From this, we can see that SPCA shrinkage outperform PCA  shrinkage, so maybe ignore pca shrinkage.
+
+##Note
+I am thinking whether I should start doing simulation set up similar to SIS paper
+let u ~ Ber(0.4), z ~ N(0,1), a = 4log(n)/sqrt(n) then let beta = (-1)^u (a + |z|) => this is for s=8/1000 or 18/20,000 (5log(n)/sqrt(n)). The difficult thing is I want 2000
+But do I really need this? HOLP fitted should be good enough.
+- if i wanna assess multiple runs, then I can fix signal region and use this specification (on 300 regions)
+
+I wanna assess stability
+
+I think Stability and Consistency is so similar. Consistency is increasing n, stability is fixing n then change samples. technically they can be combined, but let's keep separated.
+
+*actually I can create a simulation set up where I divide the signals into two separate chunks, or even scatter around
+
+###To think about
+Technically, I can fit holp on the whole sub brain image, then take the coefficients for different simulation studies. But that would make it very diverse.. I would have to re-run the whole set up again.
+OR
+I continue with this just use the centre of the brain that's been fitted HOLP already [let's go with this first ]
+
+
+
+Oct 3, I changed it such that it doesn't use the full subbrain signal, only first 300. And increased number of subject to 1000 for training, and reduce number of evaluating voxels
+`oct3_1000...`
+//`sim_binmask_sens5.R`  15036904
+//`sim_dbmask_sens5.R`. 15037157
+//`sim_sparsemask_sens5.R`. 15036906
+`sim_binmask_stab5.R`  oct3_stability_ 15046182 ==> i think using 500 subjects
+
+##Look at simulation
+```{r}
+if (!require("pacman")) {install.packages("pacman");library(pacman)}
+p_load(PMS)
+# Define the parameters
+signal_types <- c("binmask","dbmask", "sparsemask")
+
+methods <- c("PCA90", "SPCA90", "PCA90_smooth", "SPCA90_smooth", "ridge", "ridge_smooth", "pmshi", "holp","tmap",
+             "PCA90_smooth_proj", "PCA90_smooth_cov","SPCA90_smooth_proj", "SPCA90_smooth_cov")
+rsquares <- c(1,0.5,0.9)
+base_path <- "/well/nichols/users/qcv214/pms2/viz/sim/oct3_1000_"
+
+# Initialize a data frame to store the results
+results <- data.frame(
+  SignalType = character(),
+  Method = character(),
+  SignalStrength = numeric(),
+  Overlap = numeric(),
+  FPR = numeric(),
+  FDR = numeric(),
+  stringsAsFactors = FALSE
+)
+mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+mask.index <- (mask.vec %in% c(4, 15))
+
+for (a in signal_types) {
+
+  ########
+  
+  for (b in methods) {
+    for (c in rsquares) {
+      # Determine (d) based on the method
+
+      # Construct the file path
+      file_path <- paste0(base_path, a, "_", "rank_str", c, "_", b, ".nii.gz")
+      ####
+      rank.vec <- c(fast_read_imgs_mask(file_path, '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+      rank.vec <- order(rank.vec, decreasing = TRUE)
+      # Define the mask.signal based on signal type
+      if (a == "binmask") {
+        mask.signal <- which(mask.index)[1:300]
+      } else if (a == "dbmask") {
+        mask.signal <- which(mask.index)[c(1:150, 1001:1150)]
+      } else if (a == "sparsemask") {
+        mask.signal <- which(mask.index)[seq(1,1500,5)]
+      } 
+
+      # Compute accuracy metrics
+      metrics <- accuracy_cal(rank.vec = rank.vec, mask.signal = mask.signal)
+
+      # Store the results in the data frame
+      results <- rbind(results, data.frame(
+        SignalType = a,
+        Method = b,
+        SignalStrength = c,
+        Overlap = metrics$overlap,
+        FPR = metrics$FPR,
+        FDR = metrics$FDR
+      ))
+    }
+  }
+}
+# Save the results as a CSV file
+# write.csv(results, "/well/nichols/users/qcv214/pms2/viz/sim/sensitivity_results.csv", row.names = FALSE)
+
+```
+
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "ridge_smooth" = "#77868e",
+  "pmshi" = "#e6ab02",
+  "holp" = "#a6761d",
+  "tmap" = "#466791",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69", # Light green
+  "SPCA90_smooth_proj" = "#FDB462",   # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each SignalType and create a separate plot
+for (signal_type in signal_types) {
+  # Filter the results for the current SignalType
+  signal_data <- subset(results, SignalType == signal_type)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap, color = Method)) +
+    geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+    # ylim(0,100) +
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("Power vs R-square -", signal_type),
+         x = "R-square",
+         y = "Power",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+  # Save the plot to a file
+  # ggsave(filename = paste0("/well/nichols/users/qcv214/pms2/viz/sim/", signal_type, "_sensitivity_plot.png"),
+  #        plot = p, width = 8, height = 6)
+}
+```
+For bin mask, the results should be the same as having 1000 in the screening consistency, but results seem so different.
+
+Testing `sim_binmask_sens6.R` ==> running sim multiple time and recording results right away.
+//15104407
+
+let me test it 
+```{r}
+results.bin <- read.csv('/well/nichols/users/qcv214/pms2/pile/sim_oct3_binmask.csv')
+```
+it works extremely well.
+all oct3
+`sim_binmask_sens6.R` 15130961
+`sim_dbmask_sens6.R` 15132142
+`sim_sparsemask_sens6.R` 15132461
+
+#4 Oct
+
+##look at stability
+```{r}
+library(PMS)
+# Define the parameters
+signal_types <- c("binmask")
+methods <- c("PCA90", "SPCA90", "PCA90_smooth", "SPCA90_smooth", "ridge", "ridge_smooth", "pmshi", "holp","tmap",
+             "PCA90_smooth_proj", "PCA90_smooth_cov","SPCA90_smooth_proj", "SPCA90_smooth_cov")
+signal_strengths <- c(0.5,0.9,1)
+sets <- 1:10 # Now handling 10 sets
+base_path <- "/well/nichols/users/qcv214/pms2/viz/sim/oct3_stability_"
+
+# Initialize a data frame to store the results
+results <- data.frame(
+  SignalType = character(),
+  Method = character(),
+  SignalStrength = numeric(),
+  Metric = character(),
+  SD = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (a in signal_types) {
+  for (b in methods) {
+    for (c in signal_strengths) {
+      
+      # Initialize lists to store metrics for all 10 sets
+      overlap_list <- numeric(length(sets))
+      
+      for (e in sets) {
+        # Construct the file path for each set
+        file_path <- paste0(base_path, a, "_rank_str", c, "_set", e, "_", b, ".nii.gz")
+        
+        # Load the rank vector
+        rank.vec <- c(fast_read_imgs_mask(file_path, '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+
+        # Define the mask.signal based on signal type
+        mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz', '/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+        mask.index <- (mask.vec %in% c(4, 15))
+        mask.signal <- which(mask.index)[1:300]
+
+        # Compute accuracy metrics
+        metrics <- accuracy_cal(rank.vec = rank.vec, mask.signal = mask.signal)
+
+        # Store the metrics for each set
+        overlap_list[e] <- metrics$overlap
+      }
+      
+      # Compute the standard deviation of metrics across the 10 sets
+      sd_overlap <- sd(overlap_list)
+      
+      # Store the results in the data frame
+      results <- rbind(results, data.frame(
+        SignalType = a,
+        Method = b,
+        SignalStrength = c,
+        Metric = "Overlap",
+        SD = sd_overlap
+      ))
+
+    }
+  }
+}
+```
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "ridge_smooth" = "#77868e",
+  "pmshi" = "#e6ab02",
+  "holp" = "#a6761d",
+  "tmap" = "#466791",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69", # Light green
+  "SPCA90_smooth_proj" = "#FDB462",   # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each SignalType and create a separate plot for each metric
+for (signal_type in signal_types) {
+  for (metric in unique(results$Metric)) {
+    # Filter the results for the current SignalType and Metric
+    signal_data <- subset(results, SignalType == signal_type & Metric == metric)
+    
+    # Create the plot with bolder lines and distinct colors
+    p <- ggplot(signal_data, aes(x = SignalStrength, y = SD, color = Method)) +
+      geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+      scale_color_manual(values = custom_colors) +  # Use custom colors
+      theme_minimal() +
+      labs(title = paste(metric, "Standard Deviation vs R-square -", signal_type),
+           x = "R-square",
+           y = paste(metric, "Standard Deviation"),
+           color = "Method") +
+      theme(
+        plot.title = element_text(size = 14, face = "bold"),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 10)
+      )
+    
+    # Display the plot
+    print(p)
+    
+    # Save the plot to a file
+    ggsave(filename = paste0("/well/nichols/users/qcv214/pms2/viz/sim/", signal_type, "_", metric, "_stability_sd_plot.png"),
+           plot = p, width = 8, height = 6)
+  }
+}
+```
+Perhaps this isn't really needed anymore. We can just use the results from the other main simulation study and observe sd. The number of subjects considered will be greater but should be okay.
+
+
+##Look at the simulation results
+```{r}
+# Load necessary packages
+if (!require("pacman")) {install.packages("pacman"); library(pacman)}
+p_load(dplyr, readr)
+
+# Define the signal types and the file path template
+signal_types <- c("binmask", "dbmask", "sparsemask")
+# signal_types <- c("binmask")
+base_path <- "/well/nichols/users/qcv214/pms2/pile/sim_oct3_"
+
+# Initialize an empty list to store the aggregated results for each signal_type
+all_aggregated_results <- list()
+
+# Loop through each signal_type
+for (signal_type in signal_types) {
+  # Load the CSV file
+  file_path <- paste0(base_path, signal_type, ".csv")
+  results <- read_csv(file_path)
+  
+  # Aggregate the results by Method and SignalStrength
+  aggregated_results <- results %>%
+    group_by(Method, SignalStrength) %>%
+    summarise(
+      Overlap_Median = median(Overlap, na.rm = TRUE),
+      Overlap_SD = sd(Overlap, na.rm = TRUE),
+      FPR_Median = median(FPR, na.rm = TRUE),
+      FPR_SD = sd(FPR, na.rm = TRUE),
+      FDR_Median = median(FDR, na.rm = TRUE),
+      FDR_SD = sd(FDR, na.rm = TRUE)
+    ) %>%
+    mutate(SignalType = signal_type)  # Add SignalType column
+  
+  # Append to the list
+  all_aggregated_results[[signal_type]] <- aggregated_results
+}
+
+# Concatenate all aggregated results into one matrix
+results <- bind_rows(all_aggregated_results)
+
+```
+
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "ridge_smooth" = "#77868e",
+  "pms" = "#e6ab02",
+  "holp" = "#a6761d",
+  "tmap" = "#466791",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69", # Light green
+  "SPCA90_smooth_proj" = "#FDB462",   # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each SignalType and create a separate plot
+for (signal_type in signal_types) {
+  # Filter the results for the current SignalType
+  signal_data <- subset(results, SignalType == signal_type)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap_Median, color = Method)) +
+    geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+    # ylim(0,100) +
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("Power vs R-square -", signal_type),
+         x = "R-square",
+         y = "Power",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+  # Save the plot to a file
+  # ggsave(filename = paste0("/well/nichols/users/qcv214/pms2/viz/sim/", signal_type, "_sensitivity_plot.png"),
+  #        plot = p, width = 8, height = 6)
+}
+```
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "ridge_smooth" = "#77868e",
+  "pms" = "#e6ab02",
+  "holp" = "#a6761d",
+  "tmap" = "#466791",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69", # Light green
+  "SPCA90_smooth_proj" = "#FDB462",   # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each SignalType and create a separate plot
+for (signal_type in signal_types) {
+  # Filter the results for the current SignalType
+  signal_data <- subset(results, SignalType == signal_type)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap_SD, color = Method)) +
+    geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+    # ylim(0,100) +
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("Power vs R-square -", signal_type),
+         x = "R-square",
+         y = "s.d. Power",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+}
+```
+`sim_binmask_vn6.R`. 15252317 (8,5,3) ==> running varying n with 10 different runs. ===> some runs can't load mmands
+15255726 (1,7)
+
+
+#5 Oct
+
+##load screening consistency res
+```{r}
+# Load necessary packages
+if (!require("pacman")) {install.packages("pacman"); library(pacman)}
+p_load(dplyr, readr)
+
+
+fnames <- paste0("/well/nichols/users/qcv214/pms2/pile/sim_oct4_v300n_binmask_iter",success.runs,".csv")
+loaded.csv <- lapply(fnames, read.csv)
+results <- do.call(rbind, loaded.csv)
+
+# Initialize an empty list to store the aggregated results for each signal_type
+
+  # Aggregate the results by Method and SignalStrength
+aggregated_results <- results %>%
+  group_by(Method, SignalStrength,sample_size) %>%
+  summarise(
+    Overlap_Median = median(Overlap, na.rm = TRUE),
+    Overlap_SD = sd(Overlap, na.rm = TRUE),
+    FPR_Median = median(FPR, na.rm = TRUE),
+    FPR_SD = sd(FPR, na.rm = TRUE),
+    FDR_Median = median(FDR, na.rm = TRUE),
+    FDR_SD = sd(FDR, na.rm = TRUE),
+    .groups = "drop"  # Remove grouping after summarise
+  )
+results <- aggregated_results
+
+# Concatenate all aggregated results into one matrix
+# results <- bind_rows(all_aggregated_results)
+
+```
+
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "ridge_smooth" = "#77868e",
+  "pms" = "#e6ab02",
+  "holp" = "#a6761d",
+  "tmap" = "#466791",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69", # Light green
+  "SPCA90_smooth_proj" = "#FDB462",   # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Unique Signal Types
+signal_strengths <- unique(results$SignalStrength)
+# sample_sizes <- unique(results$SampleSize)
+# Loop through each SignalType and create a separate plot
+for (signal_strength in signal_strengths) {
+  # Filter the results for the current SignalType
+  # signal_data <- subset(results, SampleSize == sample_sizes)
+  signal_data <- subset(results, SignalStrength == signal_strength)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = sample_size, y = Overlap_Median, color = Method)) +
+    geom_line(size = 1) +  # Make the lines bolder with size = 1.5
+    # ylim(0,70) +
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("Power vs No. Samples - R^2 = ", signal_strength),
+         x = "No. Samples",
+         y = "Power",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+}
+```
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "ridge_smooth" = "#77868e",
+  "pms" = "#e6ab02",
+  "holp" = "#a6761d",
+  "tmap" = "#466791",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69", # Light green
+  "SPCA90_smooth_proj" = "#FDB462",   # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Unique Signal Types
+signal_strengths <- unique(results$SignalStrength)
+# sample_sizes <- unique(results$SampleSize)
+# Loop through each SignalType and create a separate plot
+for (signal_strength in signal_strengths) {
+  # Filter the results for the current SignalType
+  # signal_data <- subset(results, SampleSize == sample_sizes)
+  signal_data <- subset(results, SignalStrength == signal_strength)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = sample_size, y = Overlap_SD, color = Method)) +
+    geom_line(size = 1) +  # Make the lines bolder with size = 1.5
+    # ylim(0,70) +
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("Power vs No. Samples - R^2 = ", signal_strength),
+         x = "No. Samples",
+         y = "Power",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+}
+```
+
+`test_sparsePCA_size.R` 15747213 ==>observing the size of projection matrix
+
+#6 Oct
+##Saving simulation masks
+I created `/well/nichols/users/qcv214/pms2/viz/sim/masks` to save masks
+
+```{r}
+library(PMS)
+library(oro.nifti)
+
+mask_subcor<-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask')
+submask <-array(0,dim=dim(mask_subcor))
+mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+mask.index <- (mask.vec %in% c(4,15))
+mask.signal <- which(mask.index)
+submask[mask_subcor > 0] <- 1
+submask[mask_subcor > 0][mask.signal] <- 2
+writeNIfTI(submask,'/well/nichols/users/qcv214/pms2/viz/sim/masks/centre_mask') #/well/nichols/users/qcv214/pms2
+
+##Get the sub Mask
+mask_subcor<-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask')
+submask <-array(0,dim=dim(mask_subcor))
+mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+mask.index <- (mask.vec %in% c(4,15))
+mask.signal <- which(mask.index)[1:300]
+submask[mask_subcor > 0] <- 1
+submask[mask_subcor > 0][mask.signal] <- 2
+writeNIfTI(submask,'/well/nichols/users/qcv214/pms2/viz/sim/masks/binmask_300') #/well/nichols/users/qcv214/pms2
+
+#db mask
+mask_subcor<-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask')
+submask <-array(0,dim=dim(mask_subcor))
+mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+mask.index <- (mask.vec %in% c(4,15))
+mask.signal <- which(mask.index)[c(1:150,1001:1150)]
+submask[mask_subcor > 0] <- 1
+submask[mask_subcor > 0][mask.signal] <- 2
+writeNIfTI(submask,'/well/nichols/users/qcv214/pms2/viz/sim/masks/dbmask_300') #/well/nichols/users/qcv214/pms2
+
+#sparse mask
+mask_subcor<-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask')
+submask <-array(0,dim=dim(mask_subcor))
+mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+mask.index <- (mask.vec %in% c(4,15))
+mask.signal <- which(mask.index)[seq(1,1500,3)]
+submask[mask_subcor > 0] <- 1
+submask[mask_subcor > 0][mask.signal] <- 2
+writeNIfTI(submask,'/well/nichols/users/qcv214/pms2/viz/sim/masks/sparsemask_300') #/well/nichols/users/qcv214/pms2
+```
 
 
