@@ -9494,7 +9494,7 @@ for (signal_type in signal_types) {
 results <- bind_rows(all_aggregated_results)
 
 ```
-
+look at median power
 ```{r}
 # Load the ggplot2 library
 library(ggplot2)
@@ -9530,9 +9530,9 @@ for (signal_type in signal_types) {
     # ylim(0,100) +
     scale_color_manual(values = custom_colors) +  # Use custom colors
     theme_minimal() +
-    labs(title = paste("Power vs R-square -", signal_type),
+    labs(title = paste("Median Power vs R-square -", signal_type),
          x = "R-square",
-         y = "Power",
+         y = "Median Power",
          color = "Method") +
     theme(
       plot.title = element_text(size = 14, face = "bold"),
@@ -9549,6 +9549,7 @@ for (signal_type in signal_types) {
   #        plot = p, width = 8, height = 6)
 }
 ```
+look at sd of power
 ```{r}
 # Load the ggplot2 library
 library(ggplot2)
@@ -9584,7 +9585,7 @@ for (signal_type in signal_types) {
     # ylim(0,100) +
     scale_color_manual(values = custom_colors) +  # Use custom colors
     theme_minimal() +
-    labs(title = paste("Power vs R-square -", signal_type),
+    labs(title = paste("s.d. of Power vs R-square -", signal_type),
          x = "R-square",
          y = "s.d. Power",
          color = "Method") +
@@ -9612,7 +9613,7 @@ for (signal_type in signal_types) {
 if (!require("pacman")) {install.packages("pacman"); library(pacman)}
 p_load(dplyr, readr)
 
-
+success.runs <- c(1,3,5,7,8)
 fnames <- paste0("/well/nichols/users/qcv214/pms2/pile/sim_oct4_v300n_binmask_iter",success.runs,".csv")
 loaded.csv <- lapply(fnames, read.csv)
 results <- do.call(rbind, loaded.csv)
@@ -9674,9 +9675,9 @@ for (signal_strength in signal_strengths) {
     # ylim(0,70) +
     scale_color_manual(values = custom_colors) +  # Use custom colors
     theme_minimal() +
-    labs(title = paste("Power vs No. Samples - R^2 = ", signal_strength),
+    labs(title = paste("Median Power vs No. Samples - with R^2 = ", signal_strength),
          x = "No. Samples",
-         y = "Power",
+         y = "Median Power",
          color = "Method") +
     theme(
       plot.title = element_text(size = 14, face = "bold"),
@@ -9762,7 +9763,7 @@ submask[mask_subcor > 0] <- 1
 submask[mask_subcor > 0][mask.signal] <- 2
 writeNIfTI(submask,'/well/nichols/users/qcv214/pms2/viz/sim/masks/centre_mask') #/well/nichols/users/qcv214/pms2
 
-##Get the sub Mask
+##Get bin Mask
 mask_subcor<-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask')
 submask <-array(0,dim=dim(mask_subcor))
 mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
@@ -9792,5 +9793,1369 @@ submask[mask_subcor > 0] <- 1
 submask[mask_subcor > 0][mask.signal] <- 2
 writeNIfTI(submask,'/well/nichols/users/qcv214/pms2/viz/sim/masks/sparsemask_300') #/well/nichols/users/qcv214/pms2
 ```
+
+Looking at fitted beta
+```{r}
+library(PMS)
+library(oro.nifti)
+mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+mask.beta <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/sep25_age_HOLP_binmask_fit.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+mask.index <- (mask.vec %in% c(4,15))
+
+#Bin mask
+mask.signal <- which(mask.index)[1:300]
+sqrt(sum(mask.beta[mask.signal]^2))
+var(mask.beta[mask.signal])
+#dbmask
+mask.signal <- which(mask.index)[c(1:150,1001:1150)]
+sqrt(sum(mask.beta[mask.signal]^2))
+var(mask.beta[mask.signal])
+#Sparse mask
+mask.signal <- which(mask.index)[seq(1,1500,3)]
+sqrt(sum(mask.beta[mask.signal]^2))
+var(mask.beta[mask.signal])
+```
+
+created `sim_binmask_sens6_smooth.R` to assess the smoothing parameter
+[i think it ran out of time] `sim_oct11_binmask_smooth.csv` 16495521 => smoothing = 0.25, 0.5, 1, 2
+sim_oct11_sparsemask_smooth.csv  16895739 => 3 runs
+sim_oct11_dbmask_smooth.csv. 16895751
+
+`sim_oct11_binmask_smooth.csv` 16890423 => reduce number it to 3, also keep track of the progress
+
+
+#13 oct
+```{r}
+accuracy_cal <- function(rank.vec, mask.signal) {
+  # Determine the number of top indices to consider
+  n <- length(mask.signal)
+  
+  # Take the top n indices from rank.vec
+  top_n <- rank.vec[1:n]
+    
+  # Compute True Positives (TP)
+  TP <- length(intersect(top_n, mask.signal))
+  
+  # Compute Overlap as the percentage of true positives
+  overlap <- round(TP * 100 / n, 3)
+  
+  # Compute False Positives (FP)
+  FP <- length(setdiff(top_n, mask.signal))
+  
+  # Compute False Negatives (FN)
+  FN <- length(setdiff(mask.signal, top_n))
+  
+  # Compute False Positive Rate (FPR)
+  total_non_signal <- length(rank.vec) - n
+  FPR <- round(FP*100 / total_non_signal, 3)
+  
+  # Compute False Discovery Rate (FDR)
+  FDR <- round(FP*100 / (FP + TP), 3)
+  
+  # Return the results as a named list
+  return(list(
+    overlap = overlap,
+    FPR = FPR,
+    FDR = FDR
+  ))
+}
+```
+
+##Look at varying smoothing param
+
+###bin mask
+```{r}
+# Load necessary packages
+if (!require("pacman")) {install.packages("pacman"); library(pacman)}
+p_load(dplyr, readr)
+
+# Define the signal types and the file path template
+signal_types <- c("binmask")#, "dbmask", "sparsemask")
+# signal_types <- c("binmask")
+base_path <- "/well/nichols/users/qcv214/pms2/pile/sim_oct11_"
+
+# Initialize an empty list to store the aggregated results for each signal_type
+all_aggregated_results <- list()
+
+# Loop through each signal_type
+for (signal_type in signal_types) {
+  # Load the CSV file
+  file_path <- paste0(base_path, signal_type, "_smooth.csv")
+  results <- read_csv(file_path)
+  
+  # Aggregate the results by Method and SignalStrength
+  aggregated_results <- results %>%
+    group_by(Method, SignalStrength) %>%
+    summarise(
+      Overlap_Median = median(Overlap, na.rm = TRUE),
+      Overlap_SD = sd(Overlap, na.rm = TRUE),
+      FPR_Median = median(FPR, na.rm = TRUE),
+      FPR_SD = sd(FPR, na.rm = TRUE),
+      FDR_Median = median(FDR, na.rm = TRUE),
+      FDR_SD = sd(FDR, na.rm = TRUE)
+    ) %>%
+    mutate(SignalType = signal_type)  # Add SignalType column
+  
+  # Append to the list
+  all_aggregated_results[[signal_type]] <- aggregated_results
+}
+
+# Concatenate all aggregated results into one matrix
+results <- bind_rows(all_aggregated_results)
+
+```
+look at median power
+
+New way of showing smoothing
+```{r}
+# Base color scheme for methods
+base_colors <- c(
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge_smooth" = "#77868e",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69",   # Light green
+  "SPCA90_smooth_proj" = "#FDB462", # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Smoothing parameters
+smoothing_params <- c(0.25, 0.5, 1, 2)
+
+# Generate new custom_colors dynamically for each smoothing magnitude
+custom_colors <- list()
+
+for (method in names(base_colors)) {
+  for (smooth_val in smoothing_params) {
+    # Correct naming convention for method with smoothing parameter
+    method_with_suffix <- gsub("_smooth", paste0("_smooth", smooth_val), method)
+    custom_colors[[method_with_suffix]] <- base_colors[[method]]
+  }
+}
+
+# Convert the custom_colors list to a named vector for ggplot
+custom_colors <- unlist(custom_colors)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each smoothing parameter and create a separate plot
+for (smooth_val in smoothing_params) {
+  
+  for (signal_type in signal_types) {
+    # Filter the results for the current SignalType and Smoothing Parameter
+    signal_data <- subset(results, SignalType == signal_type & grepl(paste0("_smooth", smooth_val), Method))
+    
+    # Create the plot with bolder lines and distinct colors
+    p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap_Median, color = Method)) +
+      geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+      ylim(0,80) +
+      scale_color_manual(values = custom_colors) +  # Use dynamic colors
+      theme_minimal() +
+      labs(title = paste("Median Power vs R-square -", signal_type, "- Smoothing:", smooth_val),
+           x = "R-square",
+           y = "Median Power",
+           color = "Method") +
+      theme(
+        plot.title = element_text(size = 14, face = "bold"),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 10)
+      )
+    
+    # Display the plot
+    print(p)
+  }
+}
+```
+###db mask
+```{r}
+# Load necessary packages
+if (!require("pacman")) {install.packages("pacman"); library(pacman)}
+p_load(dplyr, readr)
+
+# Define the signal types and the file path template
+signal_types <- c("dbmask")#, "dbmask", "sparsemask")
+# signal_types <- c("binmask")
+base_path <- "/well/nichols/users/qcv214/pms2/pile/sim_oct11_"
+
+# Initialize an empty list to store the aggregated results for each signal_type
+all_aggregated_results <- list()
+
+# Loop through each signal_type
+for (signal_type in signal_types) {
+  # Load the CSV file
+  file_path <- paste0(base_path, signal_type, "_smooth.csv")
+  results <- read_csv(file_path)
+  
+  # Aggregate the results by Method and SignalStrength
+  aggregated_results <- results %>%
+    group_by(Method, SignalStrength) %>%
+    summarise(
+      Overlap_Median = median(Overlap, na.rm = TRUE),
+      Overlap_SD = sd(Overlap, na.rm = TRUE),
+      FPR_Median = median(FPR, na.rm = TRUE),
+      FPR_SD = sd(FPR, na.rm = TRUE),
+      FDR_Median = median(FDR, na.rm = TRUE),
+      FDR_SD = sd(FDR, na.rm = TRUE)
+    ) %>%
+    mutate(SignalType = signal_type)  # Add SignalType column
+  
+  # Append to the list
+  all_aggregated_results[[signal_type]] <- aggregated_results
+}
+
+# Concatenate all aggregated results into one matrix
+results <- bind_rows(all_aggregated_results)
+
+# Base color scheme for methods
+base_colors <- c(
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge_smooth" = "#77868e",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69",   # Light green
+  "SPCA90_smooth_proj" = "#FDB462", # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Smoothing parameters
+smoothing_params <- c(0.25, 0.5, 1, 2)
+
+# Generate new custom_colors dynamically for each smoothing magnitude
+custom_colors <- list()
+
+for (method in names(base_colors)) {
+  for (smooth_val in smoothing_params) {
+    # Correct naming convention for method with smoothing parameter
+    method_with_suffix <- gsub("_smooth", paste0("_smooth", smooth_val), method)
+    custom_colors[[method_with_suffix]] <- base_colors[[method]]
+  }
+}
+
+# Convert the custom_colors list to a named vector for ggplot
+custom_colors <- unlist(custom_colors)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each smoothing parameter and create a separate plot
+for (smooth_val in smoothing_params) {
+  
+  for (signal_type in signal_types) {
+    # Filter the results for the current SignalType and Smoothing Parameter
+    signal_data <- subset(results, SignalType == signal_type & grepl(paste0("_smooth", smooth_val), Method))
+    
+    # Create the plot with bolder lines and distinct colors
+    p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap_Median, color = Method)) +
+      geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+      ylim(0,80) +
+      scale_color_manual(values = custom_colors) +  # Use dynamic colors
+      theme_minimal() +
+      labs(title = paste("Median Power vs R-square -", signal_type, "- Smoothing:", smooth_val),
+           x = "R-square",
+           y = "Median Power",
+           color = "Method") +
+      theme(
+        plot.title = element_text(size = 14, face = "bold"),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 10)
+      )
+    
+    # Display the plot
+    print(p)
+  }
+}
+```
+
+###sparse mask
+```{r}
+# Load necessary packages
+if (!require("pacman")) {install.packages("pacman"); library(pacman)}
+p_load(dplyr, readr)
+
+# Define the signal types and the file path template
+signal_types <- c("sparsemask")#, "dbmask", "sparsemask")
+# signal_types <- c("binmask")
+base_path <- "/well/nichols/users/qcv214/pms2/pile/sim_oct11_"
+
+# Initialize an empty list to store the aggregated results for each signal_type
+all_aggregated_results <- list()
+
+# Loop through each signal_type
+for (signal_type in signal_types) {
+  # Load the CSV file
+  file_path <- paste0(base_path, signal_type, "_smooth.csv")
+  results <- read_csv(file_path)
+  
+  # Aggregate the results by Method and SignalStrength
+  aggregated_results <- results %>%
+    group_by(Method, SignalStrength) %>%
+    summarise(
+      Overlap_Median = median(Overlap, na.rm = TRUE),
+      Overlap_SD = sd(Overlap, na.rm = TRUE),
+      FPR_Median = median(FPR, na.rm = TRUE),
+      FPR_SD = sd(FPR, na.rm = TRUE),
+      FDR_Median = median(FDR, na.rm = TRUE),
+      FDR_SD = sd(FDR, na.rm = TRUE)
+    ) %>%
+    mutate(SignalType = signal_type)  # Add SignalType column
+  
+  # Append to the list
+  all_aggregated_results[[signal_type]] <- aggregated_results
+}
+
+# Concatenate all aggregated results into one matrix
+results <- bind_rows(all_aggregated_results)
+
+# Base color scheme for methods
+base_colors <- c(
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge_smooth" = "#77868e",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69",   # Light green
+  "SPCA90_smooth_proj" = "#FDB462", # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Smoothing parameters
+smoothing_params <- c(0.25, 0.5, 1, 2)
+
+# Generate new custom_colors dynamically for each smoothing magnitude
+custom_colors <- list()
+
+for (method in names(base_colors)) {
+  for (smooth_val in smoothing_params) {
+    # Correct naming convention for method with smoothing parameter
+    method_with_suffix <- gsub("_smooth", paste0("_smooth", smooth_val), method)
+    custom_colors[[method_with_suffix]] <- base_colors[[method]]
+  }
+}
+
+# Convert the custom_colors list to a named vector for ggplot
+custom_colors <- unlist(custom_colors)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each smoothing parameter and create a separate plot
+for (smooth_val in smoothing_params) {
+  
+  for (signal_type in signal_types) {
+    # Filter the results for the current SignalType and Smoothing Parameter
+    signal_data <- subset(results, SignalType == signal_type & grepl(paste0("_smooth", smooth_val), Method))
+    
+    # Create the plot with bolder lines and distinct colors
+    p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap_Median, color = Method)) +
+      geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+      ylim(0,80) +
+      scale_color_manual(values = custom_colors) +  # Use dynamic colors
+      theme_minimal() +
+      labs(title = paste("Median Power vs R-square -", signal_type, "- Smoothing:", smooth_val),
+           x = "R-square",
+           y = "Median Power",
+           color = "Method") +
+      theme(
+        plot.title = element_text(size = 14, face = "bold"),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 10)
+      )
+    
+    # Display the plot
+    print(p)
+  }
+}
+```
+
+Running
+//sim_oct11_binmask_smooth_pms.csv  17168777
+//sim_oct11_sparsemask_smooth_pms.csv 17168771
+
+Also change corr of pms to 0.6, and don't do cv on ridge
+//sim_oct14_binmask_ridgepms.csv 17168887
+//sim_oct14_sparsemask_ridgepms.csv 17169193
+
+#14 Oct
+
+##Smooth params for pms
+###bin mask
+```{r}
+# Load necessary packages
+if (!require("pacman")) {install.packages("pacman"); library(pacman)}
+p_load(dplyr, readr)
+
+# Define the signal types and the file path template
+signal_types <- c("binmask")#, "dbmask", "sparsemask")
+# signal_types <- c("binmask")
+base_path <- "/well/nichols/users/qcv214/pms2/pile/sim_oct11_"
+
+# Initialize an empty list to store the aggregated results for each signal_type
+all_aggregated_results <- list()
+
+# Loop through each signal_type
+for (signal_type in signal_types) {
+  # Load the CSV file
+  file_path <- paste0(base_path, signal_type, "_smooth_pms.csv")
+  results <- read_csv(file_path)
+  
+  # Aggregate the results by Method and SignalStrength
+  aggregated_results <- results %>%
+    group_by(Method, SignalStrength) %>%
+    summarise(
+      Overlap_Median = median(Overlap, na.rm = TRUE),
+      Overlap_SD = sd(Overlap, na.rm = TRUE),
+      FPR_Median = median(FPR, na.rm = TRUE),
+      FPR_SD = sd(FPR, na.rm = TRUE),
+      FDR_Median = median(FDR, na.rm = TRUE),
+      FDR_SD = sd(FDR, na.rm = TRUE)
+    ) %>%
+    mutate(SignalType = signal_type)  # Add SignalType column
+  
+  # Append to the list
+  all_aggregated_results[[signal_type]] <- aggregated_results
+}
+
+# Concatenate all aggregated results into one matrix
+results <- bind_rows(all_aggregated_results)
+
+# Base color scheme for methods
+base_colors <- c(
+  "holp_smooth" = "#7570b3",
+  "pms_smooth" = "#e7298a"
+  # "ridge_smooth" = "#77868e",
+  # "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  # "PCA90_smooth_cov" = "#B3DE69",   # Light green
+  # "SPCA90_smooth_proj" = "#FDB462", # Orange-yellow
+  # "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Smoothing parameters
+smoothing_params <- c(0.25, 0.5, 1, 2)
+
+# Generate new custom_colors dynamically for each smoothing magnitude
+custom_colors <- list()
+
+for (method in names(base_colors)) {
+  for (smooth_val in smoothing_params) {
+    # Correct naming convention for method with smoothing parameter
+    method_with_suffix <- gsub("_smooth", paste0("_smooth", smooth_val), method)
+    custom_colors[[method_with_suffix]] <- base_colors[[method]]
+  }
+}
+
+# Convert the custom_colors list to a named vector for ggplot
+custom_colors <- unlist(custom_colors)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each smoothing parameter and create a separate plot
+for (smooth_val in smoothing_params) {
+  
+  for (signal_type in signal_types) {
+    # Filter the results for the current SignalType and Smoothing Parameter
+    signal_data <- subset(results, SignalType == signal_type & grepl(paste0("_smooth", smooth_val), Method))
+    
+    # Create the plot with bolder lines and distinct colors
+    p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap_Median, color = Method)) +
+      geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+      ylim(0,80) +
+      scale_color_manual(values = custom_colors) +  # Use dynamic colors
+      theme_minimal() +
+      labs(title = paste("Median Power vs R-square -", signal_type, "- Smoothing:", smooth_val),
+           x = "R-square",
+           y = "Median Power",
+           color = "Method") +
+      theme(
+        plot.title = element_text(size = 14, face = "bold"),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 10)
+      )
+    
+    # Display the plot
+    print(p)
+  }
+}
+```
+###sparse mask
+```{r}
+# Load necessary packages
+if (!require("pacman")) {install.packages("pacman"); library(pacman)}
+p_load(dplyr, readr)
+
+# Define the signal types and the file path template
+signal_types <- c("sparsemask")#, "dbmask", "sparsemask")
+# signal_types <- c("binmask")
+base_path <- "/well/nichols/users/qcv214/pms2/pile/sim_oct11_"
+
+# Initialize an empty list to store the aggregated results for each signal_type
+all_aggregated_results <- list()
+
+# Loop through each signal_type
+for (signal_type in signal_types) {
+  # Load the CSV file
+  file_path <- paste0(base_path, signal_type, "_smooth_pms.csv")
+  results <- read_csv(file_path)
+  
+  # Aggregate the results by Method and SignalStrength
+  aggregated_results <- results %>%
+    group_by(Method, SignalStrength) %>%
+    summarise(
+      Overlap_Median = median(Overlap, na.rm = TRUE),
+      Overlap_SD = sd(Overlap, na.rm = TRUE),
+      FPR_Median = median(FPR, na.rm = TRUE),
+      FPR_SD = sd(FPR, na.rm = TRUE),
+      FDR_Median = median(FDR, na.rm = TRUE),
+      FDR_SD = sd(FDR, na.rm = TRUE)
+    ) %>%
+    mutate(SignalType = signal_type)  # Add SignalType column
+  
+  # Append to the list
+  all_aggregated_results[[signal_type]] <- aggregated_results
+}
+
+# Concatenate all aggregated results into one matrix
+results <- bind_rows(all_aggregated_results)
+
+# Base color scheme for methods
+base_colors <- c(
+  "holp_smooth" = "#7570b3",
+  "pms_smooth" = "#e7298a"
+  # "ridge_smooth" = "#77868e",
+  # "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  # "PCA90_smooth_cov" = "#B3DE69",   # Light green
+  # "SPCA90_smooth_proj" = "#FDB462", # Orange-yellow
+  # "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Smoothing parameters
+smoothing_params <- c(0.25, 0.5, 1, 2)
+
+# Generate new custom_colors dynamically for each smoothing magnitude
+custom_colors <- list()
+
+for (method in names(base_colors)) {
+  for (smooth_val in smoothing_params) {
+    # Correct naming convention for method with smoothing parameter
+    method_with_suffix <- gsub("_smooth", paste0("_smooth", smooth_val), method)
+    custom_colors[[method_with_suffix]] <- base_colors[[method]]
+  }
+}
+
+# Convert the custom_colors list to a named vector for ggplot
+custom_colors <- unlist(custom_colors)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each smoothing parameter and create a separate plot
+for (smooth_val in smoothing_params) {
+  
+  for (signal_type in signal_types) {
+    # Filter the results for the current SignalType and Smoothing Parameter
+    signal_data <- subset(results, SignalType == signal_type & grepl(paste0("_smooth", smooth_val), Method))
+    
+    # Create the plot with bolder lines and distinct colors
+    p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap_Median, color = Method)) +
+      geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+      ylim(0,80) +
+      scale_color_manual(values = custom_colors) +  # Use dynamic colors
+      theme_minimal() +
+      labs(title = paste("Median Power vs R-square -", signal_type, "- Smoothing:", smooth_val),
+           x = "R-square",
+           y = "Median Power",
+           color = "Method") +
+      theme(
+        plot.title = element_text(size = 14, face = "bold"),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 10)
+      )
+    
+    # Display the plot
+    print(p)
+  }
+}
+```
+Seems like HOLP is at least as good as PMS
+
+
+##Look at sensitivity for smooth holp
+sim_oct14_binmask_ridgepms.csv
+```{r}
+# Load necessary packages
+if (!require("pacman")) {install.packages("pacman"); library(pacman)}
+p_load(dplyr, readr)
+
+# Define the signal types and the file path template
+signal_types <- c("binmask", "sparsemask")
+# signal_types <- c("binmask")
+base_path <- "/well/nichols/users/qcv214/pms2/pile/sim_oct14_"
+
+# Initialize an empty list to store the aggregated results for each signal_type
+all_aggregated_results <- list()
+
+# Loop through each signal_type
+for (signal_type in signal_types) {
+  # Load the CSV file
+  file_path <- paste0(base_path, signal_type, "_ridgepms.csv")
+  results <- read_csv(file_path)
+  
+  # Aggregate the results by Method and SignalStrength
+  aggregated_results <- results %>%
+    group_by(Method, SignalStrength) %>%
+    summarise(
+      Overlap_Median = median(Overlap, na.rm = TRUE),
+      Overlap_SD = sd(Overlap, na.rm = TRUE),
+      FPR_Median = median(FPR, na.rm = TRUE),
+      FPR_SD = sd(FPR, na.rm = TRUE),
+      FDR_Median = median(FDR, na.rm = TRUE),
+      FDR_SD = sd(FDR, na.rm = TRUE)
+    ) %>%
+    mutate(SignalType = signal_type)  # Add SignalType column
+  
+  # Append to the list
+  all_aggregated_results[[signal_type]] <- aggregated_results
+}
+
+# Concatenate all aggregated results into one matrix
+results <- bind_rows(all_aggregated_results)
+
+```
+look at median power
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "ridge" = "#1b9e77",
+  "ridge_smooth" = "#d95f02",
+  "pms0.6" = "#7570b3",
+  "pms_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "ridge_smooth" = "#77868e",
+  "holp_smooth" = "#e6ab02"
+)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each SignalType and create a separate plot
+for (signal_type in signal_types) {
+  # Filter the results for the current SignalType
+  signal_data <- subset(results, SignalType == signal_type)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap_Median, color = Method)) +
+    geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+    # ylim(0,100) +
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("Median Power vs R-square -", signal_type),
+         x = "R-square",
+         y = "Median Power",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+  # Save the plot to a file
+  # ggsave(filename = paste0("/well/nichols/users/qcv214/pms2/viz/sim/", signal_type, "_sensitivity_plot.png"),
+  #        plot = p, width = 8, height = 6)
+}
+```
+PMS is best here. For sparse mask, see how pms0.6 is almost same as holp_smooth
+
+Let's combine these results with the old ones (replace) oct3
+
+#15 Oct
+
+##Simulation study - sensitivity
+combine new ridge result (no cv) with lower pms
+
+##Look at the simulation results
+
+
+```{r}
+# Load necessary packages
+if (!require("pacman")) {install.packages("pacman"); library(pacman)}
+p_load(dplyr, readr)
+
+# Define the signal types and the file path template
+signal_types <- c("binmask", "sparsemask")
+# signal_types <- c("binmask")
+base_path <- "/well/nichols/users/qcv214/pms2/pile/sim_oct3_"
+
+# Initialize an empty list to store the aggregated and filtered results for each signal_type
+all_aggregated_results_filtered <- list()
+
+# Loop through each signal_type
+for (signal_type in signal_types) {
+  # Load the CSV file
+  file_path <- paste0(base_path, signal_type, ".csv")
+  results <- read_csv(file_path)
+  
+  # Aggregate the results by Method and SignalStrength
+  aggregated_results <- results %>%
+    group_by(Method, SignalStrength) %>%
+    summarise(
+      Overlap_Median = median(Overlap, na.rm = TRUE),
+      Overlap_SD = sd(Overlap, na.rm = TRUE),
+      FPR_Median = median(FPR, na.rm = TRUE),
+      FPR_SD = sd(FPR, na.rm = TRUE),
+      FDR_Median = median(FDR, na.rm = TRUE),
+      FDR_SD = sd(FDR, na.rm = TRUE)
+    ) %>%
+    mutate(SignalType = signal_type)  # Add SignalType column
+  
+  # Filter the unwanted methods ("ridge", "ridge_smooth", "pms")
+  aggregated_results_filtered <- aggregated_results %>%
+    filter(!(Method %in% c("ridge", "ridge_smooth", "pms")))
+  
+  # Append the filtered results to the list
+  all_aggregated_results_filtered[[signal_type]] <- aggregated_results_filtered
+}
+
+# Concatenate all filtered aggregated results into one matrix
+results <- bind_rows(all_aggregated_results_filtered)
+```
+```{r}
+# Load necessary packages
+if (!require("pacman")) {install.packages("pacman"); library(pacman)}
+p_load(dplyr, readr)
+
+# Define the signal types and the file path templates
+signal_types <- c("binmask", "sparsemask")
+base_path_oct3 <- "/well/nichols/users/qcv214/pms2/pile/sim_oct3_"
+base_path_oct14 <- "/well/nichols/users/qcv214/pms2/pile/sim_oct14_"
+
+# Initialize empty lists to store the aggregated results for each signal_type
+all_aggregated_results_oct3 <- list()
+all_aggregated_results_oct14 <- list()
+
+# Loop through each signal_type for the first base path (Oct 3)
+for (signal_type in signal_types) {
+  # Load the CSV file
+  file_path <- paste0(base_path_oct3, signal_type, ".csv")
+  results_oct3 <- read_csv(file_path)
+  
+  # Aggregate the results by Method and SignalStrength
+  aggregated_results_oct3 <- results_oct3 %>%
+    group_by(Method, SignalStrength) %>%
+    summarise(
+      Overlap_Median = median(Overlap, na.rm = TRUE),
+      Overlap_SD = sd(Overlap, na.rm = TRUE),
+      FPR_Median = median(FPR, na.rm = TRUE),
+      FPR_SD = sd(FPR, na.rm = TRUE),
+      FDR_Median = median(FDR, na.rm = TRUE),
+      FDR_SD = sd(FDR, na.rm = TRUE)
+    ) %>%
+    mutate(SignalType = signal_type)  # Add SignalType column
+  
+  # Filter unwanted methods ("ridge", "ridge_smooth", "pms")
+  aggregated_results_oct3_filtered <- aggregated_results_oct3 %>%
+    filter(!(Method %in% c("ridge", "ridge_smooth", "pms","PCA90_smooth_cov","PCA90_smooth_proj")))
+  
+  # Append the filtered results to the list
+  all_aggregated_results_oct3[[signal_type]] <- aggregated_results_oct3_filtered
+}
+
+# Loop through each signal_type for the second base path (Oct 14)
+for (signal_type in signal_types) {
+  # Load the CSV file
+  file_path <- paste0(base_path_oct14, signal_type, "_ridgepms.csv")
+  results_oct14 <- read_csv(file_path)
+  
+  # Aggregate the results by Method and SignalStrength
+  aggregated_results_oct14 <- results_oct14 %>%
+    group_by(Method, SignalStrength) %>%
+    summarise(
+      Overlap_Median = median(Overlap, na.rm = TRUE),
+      Overlap_SD = sd(Overlap, na.rm = TRUE),
+      FPR_Median = median(FPR, na.rm = TRUE),
+      FPR_SD = sd(FPR, na.rm = TRUE),
+      FDR_Median = median(FDR, na.rm = TRUE),
+      FDR_SD = sd(FDR, na.rm = TRUE)
+    ) %>%
+    mutate(SignalType = signal_type)  # Add SignalType column
+  #filter out pms_smooth
+  aggregated_results_oct14_filtered <- aggregated_results_oct14 %>%
+    filter(!(Method %in% c("pms_smooth")))
+  # Append the filtered results to the list
+  all_aggregated_results_oct14[[signal_type]] <- aggregated_results_oct14_filtered
+
+}
+
+# Concatenate all filtered and aggregated results from both Oct 3 and Oct 14 into one matrix
+results_oct3 <- bind_rows(all_aggregated_results_oct3)
+results_oct14 <- bind_rows(all_aggregated_results_oct14)
+
+# Combine both results into a final dataframe
+results <- bind_rows(results_oct3, results_oct14)
+```
+
+
+look at median power
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "ridge_smooth" = "#77868e",
+  "pms0.6" = "#e6ab02",
+  "holp" = "#a6761d",
+  "tmap" = "#466791",
+  "holp_smooth" = "#8DD3C7",  # Light teal
+  "SPCA90_smooth_proj" = "#FDB462",   # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each SignalType and create a separate plot
+for (signal_type in signal_types) {
+  # Filter the results for the current SignalType
+  signal_data <- subset(results, SignalType == signal_type)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap_Median, color = Method)) +
+    geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+    # ylim(0,100) +
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("Median Power vs R-square -", signal_type),
+         x = "R-square",
+         y = "Median Power",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+}
+```
+
+###Should also do a comparison of new methods
+ridge old vs ridge new, pms vs pms0.6, holp vs holp
+```{r}
+# Load necessary packages
+if (!require("pacman")) {install.packages("pacman"); library(pacman)}
+p_load(dplyr, readr)
+
+# Define the signal types and the file path templates
+signal_types <- c("binmask", "sparsemask")
+base_path_oct3 <- "/well/nichols/users/qcv214/pms2/pile/sim_oct3_"
+base_path_oct14 <- "/well/nichols/users/qcv214/pms2/pile/sim_oct14_"
+
+# Initialize empty lists to store the aggregated results for each signal_type
+all_aggregated_results_oct3 <- list()
+all_aggregated_results_oct14 <- list()
+
+# Loop through each signal_type for the first base path (Oct 3)
+for (signal_type in signal_types) {
+  # Load the CSV file
+  file_path <- paste0(base_path_oct3, signal_type, ".csv")
+  results_oct3 <- read_csv(file_path)
+  
+  # Filter in only the specified methods
+  filtered_results_oct3 <- results_oct3 %>%
+    filter(Method %in% c("ridge", "ridge_smooth", "pms", "holp"))
+  
+  # Rename the methods accordingly
+  renamed_results_oct3 <- filtered_results_oct3 %>%
+    mutate(Method = case_when(
+      Method == "ridge" ~ "ridge_cv",
+      Method == "ridge_smooth" ~ "ridge_cv_smooth",
+      Method == "pms" ~ "pms0.9",
+      Method == "holp" ~ "holp",
+      TRUE ~ Method
+    ))
+  
+  # Aggregate the results by Method and SignalStrength
+  aggregated_results_oct3 <- renamed_results_oct3 %>%
+    group_by(Method, SignalStrength) %>%
+    summarise(
+      Overlap_Median = median(Overlap, na.rm = TRUE),
+      Overlap_SD = sd(Overlap, na.rm = TRUE),
+      FPR_Median = median(FPR, na.rm = TRUE),
+      FPR_SD = sd(FPR, na.rm = TRUE),
+      FDR_Median = median(FDR, na.rm = TRUE),
+      FDR_SD = sd(FDR, na.rm = TRUE)
+    ) %>%
+    mutate(SignalType = signal_type)  # Add SignalType column
+  
+  # Append the filtered results to the list
+  all_aggregated_results_oct3[[signal_type]] <- aggregated_results_oct3
+}
+
+# Loop through each signal_type for the second base path (Oct 14)
+for (signal_type in signal_types) {
+  # Load the CSV file
+  file_path <- paste0(base_path_oct14, signal_type, "_ridgepms.csv")
+  results_oct14 <- read_csv(file_path)
+  
+  # Rename the methods accordingly
+  renamed_results_oct14 <- results_oct14 %>%
+    mutate(Method = case_when(
+      Method == "ridge" ~ "ridge_noCV",
+      Method == "ridge_smooth" ~ "ridge_noCV_smooth",
+      Method == "pms0.6" ~ "pms0.6",
+      Method == "pms_smooth" ~ "pms0.6_smooth",
+      Method == "holp_smooth" ~ "holp_smooth",
+      TRUE ~ Method
+    ))
+  
+  # Aggregate the results by Method and SignalStrength
+  aggregated_results_oct14 <- renamed_results_oct14 %>%
+    group_by(Method, SignalStrength) %>%
+    summarise(
+      Overlap_Median = median(Overlap, na.rm = TRUE),
+      Overlap_SD = sd(Overlap, na.rm = TRUE),
+      FPR_Median = median(FPR, na.rm = TRUE),
+      FPR_SD = sd(FPR, na.rm = TRUE),
+      FDR_Median = median(FDR, na.rm = TRUE),
+      FDR_SD = sd(FDR, na.rm = TRUE)
+    ) %>%
+    mutate(SignalType = signal_type)  # Add SignalType column
+  
+  # Append the results to the list
+  all_aggregated_results_oct14[[signal_type]] <- aggregated_results_oct14
+}
+
+# Concatenate all filtered and aggregated results from both Oct 3 and Oct 14 into one matrix
+results_oct3 <- bind_rows(all_aggregated_results_oct3)
+results_oct14 <- bind_rows(all_aggregated_results_oct14)
+
+# Combine both results into a final dataframe
+results <- bind_rows(results_oct3, results_oct14)
+
+```
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "pms0.6" = "#1b9e77",
+  "pms0.6_smooth" = "#d95f02",
+  "ridge_noCV" = "#7570b3",
+  "ridge_noCV_smooth" = "#e7298a",
+  "ridge_cv" = "#66a61e",
+  "ridge_cv_smooth" = "#77868e",
+  "pms0.9" = "#e6ab02",
+  "holp" = "#a6761d",
+  "holp_smooth" = "#466791"
+)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each SignalType and create a separate plot
+for (signal_type in signal_types) {
+  # Filter the results for the current SignalType
+  signal_data <- subset(results, SignalType == signal_type)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap_Median, color = Method)) +
+    geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+    # ylim(0,100) +
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("Median Power vs R-square -", signal_type),
+         x = "R-square",
+         y = "Median Power",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+}
+```
+
+##Smoothness analysis
+###binmask
+```{r}
+# Load necessary packages
+if (!require("pacman")) {install.packages("pacman"); library(pacman)}
+p_load(dplyr, readr, stringr)
+
+# Define the signal types and the file path template
+signal_types <- c("binmask")  # Add other signal types if needed
+base_path <- "/well/nichols/users/qcv214/pms2/pile/sim_oct11_"
+
+# Initialize an empty list to store the aggregated results for each signal_type
+all_aggregated_results <- list()
+
+# Loop through each signal_type for the first file (smooth.csv)
+for (signal_type in signal_types) {
+  # Load the CSV file
+  file_path <- paste0(base_path, signal_type, "_smooth.csv")
+  results_smooth <- read_csv(file_path)
+  
+  # Aggregate the results by Method and SignalStrength
+  aggregated_results_smooth <- results_smooth %>%
+    group_by(Method, SignalStrength) %>%
+    summarise(
+      Overlap_Median = median(Overlap, na.rm = TRUE),
+      Overlap_SD = sd(Overlap, na.rm = TRUE),
+      FPR_Median = median(FPR, na.rm = TRUE),
+      FPR_SD = sd(FPR, na.rm = TRUE),
+      FDR_Median = median(FDR, na.rm = TRUE),
+      FDR_SD = sd(FDR, na.rm = TRUE)
+    ) %>%
+    mutate(SignalType = signal_type)  # Add SignalType column
+  
+  # Append to the list
+  all_aggregated_results[[paste0(signal_type, "_smooth")]] <- aggregated_results_smooth
+}
+
+# Loop through each signal_type for the second file (smooth_pms.csv)
+for (signal_type in signal_types) {
+  # Load the CSV file
+  file_path <- paste0(base_path, signal_type, "_smooth_pms.csv")
+  results_smooth_pms <- read_csv(file_path)
+  
+  # Filter out any rows where the Method contains the prefix "pms_smooth"
+  results_smooth_pms <- results_smooth_pms %>%
+    filter(!str_detect(Method, "^pms_smooth"))
+  
+  # Aggregate the results by Method and SignalStrength
+  aggregated_results_smooth_pms <- results_smooth_pms %>%
+    group_by(Method, SignalStrength) %>%
+    summarise(
+      Overlap_Median = median(Overlap, na.rm = TRUE),
+      Overlap_SD = sd(Overlap, na.rm = TRUE),
+      FPR_Median = median(FPR, na.rm = TRUE),
+      FPR_SD = sd(FPR, na.rm = TRUE),
+      FDR_Median = median(FDR, na.rm = TRUE),
+      FDR_SD = sd(FDR, na.rm = TRUE)
+    ) %>%
+    mutate(SignalType = signal_type)  # Add SignalType column
+  
+  # Append to the list
+  all_aggregated_results[[paste0(signal_type, "_smooth_pms")]] <- aggregated_results_smooth_pms
+}
+
+# Concatenate all aggregated results into one matrix
+results <- bind_rows(all_aggregated_results)
+```
+```{r}
+# Base color scheme for methods
+base_colors <- c(
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge_smooth" = "#77868e",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69",   # Light green
+  "SPCA90_smooth_proj" = "#FDB462", # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072",   # Salmon pink
+  "holp_smooth" = "#466791"
+)
+
+# Smoothing parameters
+smoothing_params <- c(0.25, 0.5, 1, 2)
+
+# Generate new custom_colors dynamically for each smoothing magnitude
+custom_colors <- list()
+
+for (method in names(base_colors)) {
+  for (smooth_val in smoothing_params) {
+    # Correct naming convention for method with smoothing parameter
+    method_with_suffix <- gsub("_smooth", paste0("_smooth", smooth_val), method)
+    custom_colors[[method_with_suffix]] <- base_colors[[method]]
+  }
+}
+
+# Convert the custom_colors list to a named vector for ggplot
+custom_colors <- unlist(custom_colors)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each smoothing parameter and create a separate plot
+for (smooth_val in smoothing_params) {
+  
+  for (signal_type in signal_types) {
+    # Filter the results for the current SignalType and Smoothing Parameter
+    signal_data <- subset(results, SignalType == signal_type & grepl(paste0("_smooth", smooth_val), Method))
+    
+    # Create the plot with bolder lines and distinct colors
+    p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap_Median, color = Method)) +
+      geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+      ylim(0,80) +
+      scale_color_manual(values = custom_colors) +  # Use dynamic colors
+      theme_minimal() +
+      labs(title = paste("Median Power vs R-square -", signal_type, "- Smoothing:", smooth_val),
+           x = "R-square",
+           y = "Median Power",
+           color = "Method") +
+      theme(
+        plot.title = element_text(size = 14, face = "bold"),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 10)
+      )
+    
+    # Display the plot
+    print(p)
+  }
+}
+```
+
+###sparsemask
+```{r}
+# Load necessary packages
+if (!require("pacman")) {install.packages("pacman"); library(pacman)}
+p_load(dplyr, readr, stringr)
+
+# Define the signal types and the file path template
+signal_types <- c("sparsemask")  # Add other signal types if needed
+base_path <- "/well/nichols/users/qcv214/pms2/pile/sim_oct11_"
+
+# Initialize an empty list to store the aggregated results for each signal_type
+all_aggregated_results <- list()
+
+# Loop through each signal_type for the first file (smooth.csv)
+for (signal_type in signal_types) {
+  # Load the CSV file
+  file_path <- paste0(base_path, signal_type, "_smooth.csv")
+  results_smooth <- read_csv(file_path)
+  
+  # Aggregate the results by Method and SignalStrength
+  aggregated_results_smooth <- results_smooth %>%
+    group_by(Method, SignalStrength) %>%
+    summarise(
+      Overlap_Median = median(Overlap, na.rm = TRUE),
+      Overlap_SD = sd(Overlap, na.rm = TRUE),
+      FPR_Median = median(FPR, na.rm = TRUE),
+      FPR_SD = sd(FPR, na.rm = TRUE),
+      FDR_Median = median(FDR, na.rm = TRUE),
+      FDR_SD = sd(FDR, na.rm = TRUE)
+    ) %>%
+    mutate(SignalType = signal_type)  # Add SignalType column
+  
+  # Append to the list
+  all_aggregated_results[[paste0(signal_type, "_smooth")]] <- aggregated_results_smooth
+}
+
+# Loop through each signal_type for the second file (smooth_pms.csv)
+for (signal_type in signal_types) {
+  # Load the CSV file
+  file_path <- paste0(base_path, signal_type, "_smooth_pms.csv")
+  results_smooth_pms <- read_csv(file_path)
+  
+  # Filter out any rows where the Method contains the prefix "pms_smooth"
+  results_smooth_pms <- results_smooth_pms %>%
+    filter(!str_detect(Method, "^pms_smooth"))
+  
+  # Aggregate the results by Method and SignalStrength
+  aggregated_results_smooth_pms <- results_smooth_pms %>%
+    group_by(Method, SignalStrength) %>%
+    summarise(
+      Overlap_Median = median(Overlap, na.rm = TRUE),
+      Overlap_SD = sd(Overlap, na.rm = TRUE),
+      FPR_Median = median(FPR, na.rm = TRUE),
+      FPR_SD = sd(FPR, na.rm = TRUE),
+      FDR_Median = median(FDR, na.rm = TRUE),
+      FDR_SD = sd(FDR, na.rm = TRUE)
+    ) %>%
+    mutate(SignalType = signal_type)  # Add SignalType column
+  
+  # Append to the list
+  all_aggregated_results[[paste0(signal_type, "_smooth_pms")]] <- aggregated_results_smooth_pms
+}
+
+# Concatenate all aggregated results into one matrix
+results <- bind_rows(all_aggregated_results)
+
+# Base color scheme for methods
+base_colors <- c(
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge_smooth" = "#77868e",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69",   # Light green
+  "SPCA90_smooth_proj" = "#FDB462", # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072",   # Salmon pink
+  "holp_smooth" = "#466791"
+)
+
+# Smoothing parameters
+smoothing_params <- c(0.25, 0.5, 1, 2)
+
+# Generate new custom_colors dynamically for each smoothing magnitude
+custom_colors <- list()
+
+for (method in names(base_colors)) {
+  for (smooth_val in smoothing_params) {
+    # Correct naming convention for method with smoothing parameter
+    method_with_suffix <- gsub("_smooth", paste0("_smooth", smooth_val), method)
+    custom_colors[[method_with_suffix]] <- base_colors[[method]]
+  }
+}
+
+# Convert the custom_colors list to a named vector for ggplot
+custom_colors <- unlist(custom_colors)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each smoothing parameter and create a separate plot
+for (smooth_val in smoothing_params) {
+  
+  for (signal_type in signal_types) {
+    # Filter the results for the current SignalType and Smoothing Parameter
+    signal_data <- subset(results, SignalType == signal_type & grepl(paste0("_smooth", smooth_val), Method))
+    
+    # Create the plot with bolder lines and distinct colors
+    p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap_Median, color = Method)) +
+      geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+      ylim(0,80) +
+      scale_color_manual(values = custom_colors) +  # Use dynamic colors
+      theme_minimal() +
+      labs(title = paste("Median Power vs R-square -", signal_type, "- Smoothing:", smooth_val),
+           x = "R-square",
+           y = "Median Power",
+           color = "Method") +
+      theme(
+        plot.title = element_text(size = 14, face = "bold"),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 10)
+      )
+    
+    # Display the plot
+    print(p)
+  }
+}
+```
+#16 oct
+
+//profiling `sim_method_profiling.R`17934193
+
+Running `sim_pms_grid.R` sim_oct16_pms_grid.csv  18162437
+
+#17 Oct
+
+##Tune pms
+```{r}
+# Load necessary packages
+if (!require("pacman")) {install.packages("pacman"); library(pacman)}
+p_load(dplyr, readr, stringr)
+
+# Define the signal types and the file path template
+# Loop through each signal_type for the first file (smooth.csv)
+  # Load the CSV file
+  file_path <- paste0("/well/nichols/users/qcv214/pms2/pile/sim_oct16_pms_grid.csv")
+  results_smooth <- read_csv(file_path)
+  
+  # Aggregate the results by Method and SignalStrength
+  aggregated_results_smooth <- results_smooth %>%
+    group_by(Method, SignalStrength, SignalType) %>%
+    summarise(
+      Overlap_Median = median(Overlap, na.rm = TRUE),
+      Overlap_SD = sd(Overlap, na.rm = TRUE),
+      FPR_Median = median(FPR, na.rm = TRUE),
+      FPR_SD = sd(FPR, na.rm = TRUE),
+      FDR_Median = median(FDR, na.rm = TRUE),
+      FDR_SD = sd(FDR, na.rm = TRUE)
+    )   # Add SignalType column
+  
+
+
+# Concatenate all aggregated results into one matrix
+results <- bind_rows(aggregated_results_smooth)
+```
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "pms0.1" = "#1b9e77",
+  "pms0.2" = "#d95f02",
+  "pms0.3" = "#7570b3",
+  "pms0.4" = "#e7298a",
+  "pms0.5" = "#66a61e",
+  "pms0.6" = "#77868e",
+  "pms0.7" = "#e6ab02",
+  "pms0.8" = "#a6761d",
+  "pms0.9" = "#466791",
+  "pms1" = "#8DD3C7"
+)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each SignalType and create a separate plot
+for (signal_type in signal_types) {
+  # Filter the results for the current SignalType
+  signal_data <- subset(results, SignalType == signal_type)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap_Median, color = Method)) +
+    geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+    # ylim(0,100) +
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("Median Power vs R-square -", signal_type),
+         x = "R-square",
+         y = "Median Power",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+}
+```
+pms 0.9 and 1 are always terrible
+binmask: 0.4-0.6
+sparse: it's clearly ordered.
+
+##profiling
+//`sim_method_profiling.R` added running raw HOLP: 18234682 ==> raw fitting of HOLP takes 4 seconds
+
 
 
