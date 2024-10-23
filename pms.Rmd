@@ -11158,4 +11158,160 @@ sparse: it's clearly ordered.
 //`sim_method_profiling.R` added running raw HOLP: 18234682 ==> raw fitting of HOLP takes 4 seconds
 
 
+#21 Oct
+
+##Smooothing param
+For the sake of simplicity and efficiency, we will try to gauge the smoothing param/correlation based on 1D vector of images instead of 3D (of course 3D has more precision). Two measures (measured by succeeding indices)
+1. Laplacian smoothness (roughness penalty) - sum of diff squared
+2. Variance of differences - var(diff)
+
+##Acquiring signal
+
+First, I need to obtain signals, for now I will only assume signals from the signal region that i fitted HOLP on
+
+###normalised laplacian
+```{r}
+#load beta
+mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+mask.index <- (mask.vec %in% c(4,15))
+mask.signal <- which(mask.index)[1:300] #let's try binmask here since we have pms to benchmark
+mask.beta <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/sep25_age_HOLP_binmask_fit.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+
+#signal-area only
+# signals <- mask.beta[mask.signal]
+#non-signal area as well
+mask.beta[!mask.index] <- 0
+signals <- mask.beta
+
+normalize_smoothness <- function(smoothness, raw_signal) {
+  vector_length <- length(raw_signal)
+  min_val <- min(raw_signal)
+  max_val <- max(raw_signal)
+  # The maximal roughness would occur when every adjacent element alternates between min_val and max_val.
+  max_roughness = (vector_length - 1) * (max_val - min_val)^2
+  # Minimal roughness is 0 when the vector is constant.
+  min_roughness = 0
+  
+  # Normalize the smoothness between 0 and 1
+  normalized_smoothness = (smoothness - min_roughness) / (max_roughness - min_roughness)
+  return(1 - normalized_smoothness)  # Higher values indicate more smoothness
+}
+
+# Compute Laplacian smoothness (sum of squared differences)
+laplacian_smoothness <- sum(diff(signals)^2)
+
+#normalise
+smoothness_score <- normalize_smoothness(laplacian_smoothness, signals)
+
+print(smoothness_score)  # Smoothness score between 0 and 1
+```
+0.977 for 1867 voxels of signals with non-zero
+0.997 for all voxels where 1867 of those are non-zero
+0.964 for binmask
+
+I think it makes sense to use the first case since at non-signals area, we shouldn't be caring about smoothing anyway. 
+But then it doesn't make sense if signals are not defined to be contiguous right? So need to make use of the whole image even though it's 0??
+
+what's interesting is that signals seem to be normally dist around 0 (via plot(density(signals))), so this result of smoothness is similar to drawing samples from normal dist...
+
+Maybe we can use sd or var to make an estimate? but these don't take into account of smoothness. Then maybe var of diff or sd of diff??
+
+##plotting dist
+```{r}
+#signals
+plot(density(signals))
+
+plot(density(diff(signals))) #this is still gaussian. => so maybe use sd?
+```
+sd of diff is only 0.237
+
+
+###variance  method
+```{r}
+normalize_variance_diff <- function(variance_diff, data) {
+  total_variance <- var(data)
+  normalized_smoothness <- 1 - (variance_diff / total_variance)
+  return(normalized_smoothness)
+}
+
+# Compute variance of differences
+variance_diff <- var(diff(signals))
+
+# Normalize by total variance
+smoothness_score <- normalize_variance_diff(variance_diff, signals)
+print(smoothness_score)
+``` 
+This is negative - not really usable?
+
+Note that if var(diff(signals)) > var(signals) then signals are not smooth? it means consecutive signals are not smooth wrt overall variabiliy 
+```{r}
+var(diff(signals))- var(signals)
+```
+
+
+#23 Oct
+
+We can estimate the spatial correlation by computing lag-1 correlation in each direction x,y,z e.g. by shifting the image.
+```{r}
+##load beta
+library(PMS)
+#load beta
+mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+mask.index <- (mask.vec %in% c(4,15))
+mask.signal <- which(mask.index)#let's try binmask here since we have pms to benchmark
+mask.beta <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/sep25_age_HOLP_binmask_fit.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+
+#signal-area only
+# signals <- mask.beta[mask.signal]
+#non-signal area as well
+mask.beta[!mask.index] <- 0
+signals <- mask.beta
+```
+compute corr
+```{r}
+# Function to compute lag-1 correlation along a specific axis (x, y, or z)
+compute_lag1_correlation <- function(img, axis) {
+  # Get dimensions of the 3D image
+  dims <- dim(img)
+  
+  # Initialize shifted image
+  shifted_img <- array(0, dim = dims)
+  
+  # Shift the image along the specified axis
+  if (axis == "x") {
+    shifted_img[2:dims[1], , ] <- img[1:(dims[1]-1), , ]
+  } else if (axis == "y") {
+    shifted_img[, 2:dims[2], ] <- img[, 1:(dims[2]-1), ]
+  } else if (axis == "z") {
+    shifted_img[, , 2:dims[3]] <- img[, , 1:(dims[3]-1)]
+  }
+  
+  # Flatten both images to compute correlation
+  valid_mask <- shifted_img != 0  # Exclude any potential zero-padded regions
+  img_vector <- img[valid_mask]
+  shifted_img_vector <- shifted_img[valid_mask]
+  
+  # Compute correlation between the original and shifted image
+  return(cor(img_vector, shifted_img_vector))
+}
+
+# Load your 3D nifti image
+mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz')
+mask.temp[mask.temp > 0 ] <- signals
+img <- mask.temp@.Data  # Extract the raw data from the nifti object
+
+# Compute lag-1 correlation in each direction (x, y, z)
+lag1_corr_x <- compute_lag1_correlation(img, "x")
+lag1_corr_y <- compute_lag1_correlation(img, "y")
+lag1_corr_z <- compute_lag1_correlation(img, "z")
+
+# Output the correlations
+cat("Lag-1 correlation in x-direction: ", lag1_corr_x, "\n")
+cat("Lag-1 correlation in y-direction: ", lag1_corr_y, "\n")
+cat("Lag-1 correlation in z-direction: ", lag1_corr_z, "\n")
+```
+
+
+
+
 
