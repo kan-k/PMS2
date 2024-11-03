@@ -20,7 +20,7 @@ p_load(extraDistr)
 p_load(rrcov)
 p_load(pls)
 
-install.packages("/well/nichols/users/qcv214/pms2/package/mmand_1.6.2.tar.gz", repos = NULL, type = "source")
+# install.packages("/well/nichols/users/qcv214/pms2/package/mmand_1.6.2.tar.gz", repos = NULL, type = "source")
 library(mmand)
 
 ##########
@@ -144,9 +144,13 @@ for (iter in 1:n_iterations) {
       ################################################################ pca smooth 3 ######################################################################
       shrinkage.param <- 0.1
       
-      smooth.params <- c(0.25,0.5,1,2)
+      smooth.params <- c(0.25,0.5, 0.5515848, 0.7156813 ,1,2)
+      # smooth.params <- c(0.7156813)
       
       for(smooth.param in smooth.params){
+        
+        print("#####################################")
+        print(paste0("This is iteration: ",iter,"| rsquare level: ",rsquare,"| smoothing param: ",smooth.param))
         
         smooth_1d_image <- function(x){
           #turn 1d image into 3d
@@ -172,8 +176,8 @@ for (iter in 1:n_iterations) {
         #Ridge
         
         # set.seed(4)
-        fit.ridge <- cv.glmnet(sub.dat.s,res.var, alpha=0)
-        beta <- coef(fit.ridge, s = "lambda.min")
+        fit.ridge <- glmnet(sub.dat.s,res.var, alpha=0, lambda = 1e-4)
+        beta <- coef(fit.ridge)
         beta_no_int <- beta[-1,]
         rank_beta.ridge <- beta_no_int[order(abs(beta_no_int), decreasing=TRUE)]
         num.vox.vec <- (1:3)*100
@@ -280,9 +284,9 @@ for (iter in 1:n_iterations) {
         
         print("tune SPCA")
         
-        cv_model <- cv.glmnet(sub.dat.s, res.var, alpha = 0, nfolds = 10)
+        cv_model <- glmnet(sub.dat.s,res.var, alpha=0, lambda = 1e-4)
         # Best lambda from cross-validation
-        coefficients <- coef(cv_model, s = "lambda.min")  # Extract coefficients at best lambda
+        coefficients <- coef(cv_model)  # Extract coefficients at best lambda
         weights <- abs(coefficients[-1,])  # Exclude intercept from weights (first row of coefficients)
         X_weighted <- scale(sub.dat.s) * sqrt(weights)
         # Perform PCA on the weighted matrix
@@ -354,4 +358,4 @@ for (iter in 1:n_iterations) {
   }
 }
 
-write.csv(results, '/well/nichols/users/qcv214/pms2/pile/sim_oct11_dbmask_smooth.csv', row.names = FALSE)
+write.csv(results, '/well/nichols/users/qcv214/pms2/pile/sim_oct31_dbmask_smooth.csv', row.names = FALSE)
