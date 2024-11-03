@@ -11258,13 +11258,171 @@ library(PMS)
 #load beta
 mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
 mask.index <- (mask.vec %in% c(4,15))
-mask.signal <- which(mask.index)#let's try binmask here since we have pms to benchmark
+mask.signal <- which(mask.index)[1:300]#let's try binmask here since we have pms to benchmark
 mask.beta <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/sep25_age_HOLP_binmask_fit.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
 
 #signal-area only
 # signals <- mask.beta[mask.signal]
 #non-signal area as well
-mask.beta[!mask.index] <- 0
+# mask.beta[!mask.index] <- 0
+mask.beta[-mask.signal] <- 0
+signals <- mask.beta
+```
+compute corr
+```{r}
+# Function to compute lag-1 correlation along a specific axis (x, y, or z)
+compute_lag1_correlation <- function(img, axis) {
+  # Get dimensions of the 3D image
+  dims <- dim(img)
+  
+  # Initialize shifted image
+  shifted_img <- array(0, dim = dims)
+  
+  # Shift the image along the specified axis
+  if (axis == "x") {
+    shifted_img[2:dims[1], , ] <- img[1:(dims[1]-1), , ]
+  } else if (axis == "y") {
+    shifted_img[, 2:dims[2], ] <- img[, 1:(dims[2]-1), ]
+  } else if (axis == "z") {
+    shifted_img[, , 2:dims[3]] <- img[, , 1:(dims[3]-1)]
+  }
+  
+  # Flatten both images to compute correlation
+  valid_mask <- shifted_img != 0  # Exclude any potential zero-padded regions ==> #this part break sparse mask in x direction
+  img_vector <- img[valid_mask] #basically this becomes empty due to no overlapping in sparse mask.
+  shifted_img_vector <- shifted_img[valid_mask]
+  
+  # Compute correlation between the original and shifted image
+  return(cor(img_vector, shifted_img_vector))
+}
+
+# Load your 3D nifti image
+mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz')
+mask.temp[mask.temp > 0 ] <- signals
+img <- mask.temp@.Data  # Extract the raw data from the nifti object
+
+# Compute lag-1 correlation in each direction (x, y, z)
+lag1_corr_x <- compute_lag1_correlation(img, "x")
+lag1_corr_y <- compute_lag1_correlation(img, "y")
+lag1_corr_z <- compute_lag1_correlation(img, "z")
+
+# Output the correlations
+cat("Lag-1 correlation in x-direction: ", lag1_corr_x, "\n")
+cat("Lag-1 correlation in y-direction: ", lag1_corr_y, "\n")
+cat("Lag-1 correlation in z-direction: ", lag1_corr_z, "\n")
+cat("Lag-1 correlation in geom mean: ", (abs(lag1_corr_x) * abs(lag1_corr_y) * abs(lag1_corr_z))^(1/3), "\n") #this does not make sense
+
+cat("Lag-1 correlation in SUM-direction: ", lag1_corr_x + lag1_corr_y + lag1_corr_z, "\n")
+cat("Lag-1 correlation in MEAN-direction: ", (lag1_corr_x + lag1_corr_y + lag1_corr_z)/3, "\n")
+
+```
+What make sense the most if sum of these directional corr, equal to 0.45 ==> this is most intuitive but I need to verify this maybe with another case.
+Summing can make it exceed 1!!
+
+#### sparse mask
+```{r}
+##load beta
+library(PMS)
+#load beta
+mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+mask.index <- (mask.vec %in% c(4,15))
+mask.signal <- which(mask.index)[seq(1,1500,5)]#let's try binmask here since we have pms to benchmark
+mask.beta <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/sep25_age_HOLP_binmask_fit.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+
+mask.beta[-mask.signal] <- 0
+signals <- mask.beta
+
+mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz')
+mask.temp[mask.temp > 0 ] <- signals
+img <- mask.temp@.Data  # Extract the raw data from the nifti object
+
+# Compute lag-1 correlation in each direction (x, y, z)
+lag1_corr_x <- compute_lag1_correlation(img, "x") #got sd = 0???
+lag1_corr_y <- compute_lag1_correlation(img, "y")
+lag1_corr_z <- compute_lag1_correlation(img, "z")
+
+# Output the correlations
+cat("Lag-1 correlation in x-direction: ", lag1_corr_x, "\n")
+cat("Lag-1 correlation in y-direction: ", lag1_corr_y, "\n")
+cat("Lag-1 correlation in z-direction: ", lag1_corr_z, "\n")
+cat("Lag-1 correlation in SUM-direction: ", lag1_corr_x + lag1_corr_y + lag1_corr_z, "\n")
+```
+Take NA as "no smoothness"
+
+
+L2 norm of diff => this measures roughness
+```{r}
+# Function to compute normalized smoothness (opposite of roughness) based on lag-1 differences along a specified axis
+compute_normalized_smoothness <- function(img, axis) {
+  # Get dimensions of the 3D image
+  dims <- dim(img)
+  
+  # Compute lag-1 differences along the specified axis
+  if (axis == "x") {
+    diff_img <- img[2:dims[1], , ] - img[1:(dims[1]-1), , ]
+  } else if (axis == "y") {
+    diff_img <- img[, 2:dims[2], ] - img[, 1:(dims[2]-1), ]
+  } else if (axis == "z") {
+    diff_img <- img[, , 2:dims[3]] - img[, , 1:(dims[3]-1)]
+  }
+
+  # Compute the L2 norm of the differences (roughness measure)
+  roughness <- sqrt(sum(diff_img^2, na.rm = TRUE))
+  
+  # Normalize the smoothness measure: 1 for no roughness, approaching 0 as roughness increases
+  max_possible_roughness <- sqrt(length(diff_img))  # Maximum roughness if each difference is maximally distinct ==> this is way too big due to 91x109x91
+  print(max(abs(diff_img)))
+  smoothness <- 1 - (roughness / max_possible_roughness)
+  smoothness <- max(0, min(smoothness, 1))  # Ensure smoothness is within [0, 1]
+  
+  return(smoothness)
+}
+
+# Load your 3D nifti image
+mask.temp <- oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz')
+mask.temp[mask.temp > 0] <- signals
+img <- mask.temp@.Data  # Extract the raw data from the nifti object
+
+# Compute normalized smoothness in each direction (x, y, z)
+smoothness_x <- compute_normalized_smoothness(img, "x")
+smoothness_y <- compute_normalized_smoothness(img, "y")
+smoothness_z <- compute_normalized_smoothness(img, "z")
+
+# Output the smoothness values
+cat("Normalized smoothness in x-direction: ", smoothness_x, "\n")
+cat("Normalized smoothness in y-direction: ", smoothness_y, "\n")
+cat("Normalized smoothness in z-direction: ", smoothness_z, "\n")
+```
+
+
+#25 Oct
+
+To estimate sigma, we can try the following:
+1. Do HOLP and lag-1 correlation like above
+2. Do HOLP and compute lag-1 L2 norm for smoothness (need to normalised) => this is too difficult to formulate into usable metric... it's only good as a relative metric
+3. Fit voxel-wise correlation, then perform 1 or 2.
+
+Jian said both the correlation and the L2norm methods for finding correlation/smoothness sound good too.
+
+The other correlation we can do is we can voxel-wise fit correlation of y against x to get a (spatially-varying) coefficients correlation image, which we can use instead of fitted beta/holp too.
+
+Created `gen_age_cor_binmask.R` to save `pms2/viz/oct25_age_cor_binmask_fit` // 19388839
+
+##Look at voxel-wise corr
+```{r}
+##load beta
+library(PMS)
+#load beta
+mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+mask.index <- (mask.vec %in% c(4,15))
+mask.signal <- which(mask.index)[1:300]#let's try binmask here since we have pms to benchmark
+mask.beta <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/oct25_age_cor_binmask_fit.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+
+#signal-area only
+# signals <- mask.beta[mask.signal]
+#non-signal area as well
+# mask.beta[!mask.index] <- 0
+mask.beta[-mask.signal] <- 0
 signals <- mask.beta
 ```
 compute corr
@@ -11309,9 +11467,867 @@ lag1_corr_z <- compute_lag1_correlation(img, "z")
 cat("Lag-1 correlation in x-direction: ", lag1_corr_x, "\n")
 cat("Lag-1 correlation in y-direction: ", lag1_corr_y, "\n")
 cat("Lag-1 correlation in z-direction: ", lag1_corr_z, "\n")
+cat("Lag-1 correlation in SUM-direction: ", lag1_corr_x + lag1_corr_y + lag1_corr_z, "\n")
+cat("Lag-1 correlation in geom mean: ", (abs(lag1_corr_x) * abs(lag1_corr_y) * abs(lag1_corr_z))^(1/3), "\n") #this looks particularly decent. 
+cat("Lag-1 correlation in power flatness mean: ", (abs(lag1_corr_x) * abs(lag1_corr_y) * abs(lag1_corr_z))^(1/3)/((abs(lag1_corr_x) + abs(lag1_corr_y) + abs(lag1_corr_z))/3), "\n") #this does not make sense. 
+
+cat("Lag-1 correlation in flatness: ", (abs(lag1_corr_x) * abs(lag1_corr_y) * abs(lag1_corr_z))/(abs(lag1_corr_x) + abs(lag1_corr_y) + abs(lag1_corr_z)), "\n")
+cat("Lag-1 correlation in mean: ", (abs(lag1_corr_x) + abs(lag1_corr_y) + abs(lag1_corr_z))/3, "\n") #this looks decent, maybe most decent. 
+
+```
+So suppose corr is 0.4567, the corresponding smoothness should be 1/sqrt(-2*log(0.4567))
+
+###for db mask
+##Look at voxel-wise corr
+```{r}
+##load beta
+library(PMS)
+#load beta
+mask.vec <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+mask.index <- (mask.vec %in% c(4,15))
+mask.signal <- which(mask.index)[c(1:150, 1001:1150)]#let's try binmask here since we have pms to benchmark
+mask.beta <- c(fast_read_imgs_mask('/well/nichols/users/qcv214/pms2/viz/oct25_age_cor_binmask_fit.nii.gz','/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz'))
+
+#signal-area only
+# signals <- mask.beta[mask.signal]
+#non-signal area as well
+# mask.beta[!mask.index] <- 0
+mask.beta[-mask.signal] <- 0
+signals <- mask.beta
+```
+compute corr
+```{r}
+# Function to compute lag-1 correlation along a specific axis (x, y, or z)
+compute_lag1_correlation <- function(img, axis) {
+  # Get dimensions of the 3D image
+  dims <- dim(img)
+  
+  # Initialize shifted image
+  shifted_img <- array(0, dim = dims)
+  
+  # Shift the image along the specified axis
+  if (axis == "x") {
+    shifted_img[2:dims[1], , ] <- img[1:(dims[1]-1), , ]
+  } else if (axis == "y") {
+    shifted_img[, 2:dims[2], ] <- img[, 1:(dims[2]-1), ]
+  } else if (axis == "z") {
+    shifted_img[, , 2:dims[3]] <- img[, , 1:(dims[3]-1)]
+  }
+  
+  # Flatten both images to compute correlation
+  valid_mask <- shifted_img != 0  # Exclude any potential zero-padded regions
+  img_vector <- img[valid_mask]
+  shifted_img_vector <- shifted_img[valid_mask]
+  
+  # Compute correlation between the original and shifted image
+  return(cor(img_vector, shifted_img_vector))
+}
+
+# Load your 3D nifti image
+mask.temp <-oro.nifti::readNIfTI('/well/nichols/users/qcv214/pms2/sub150_centre_mask.nii.gz')
+mask.temp[mask.temp > 0 ] <- signals
+img <- mask.temp@.Data  # Extract the raw data from the nifti object
+
+# Compute lag-1 correlation in each direction (x, y, z)
+lag1_corr_x <- compute_lag1_correlation(img, "x")
+lag1_corr_y <- compute_lag1_correlation(img, "y")
+lag1_corr_z <- compute_lag1_correlation(img, "z")
+
+# Output the correlations
+cat("Lag-1 correlation in x-direction: ", lag1_corr_x, "\n")
+cat("Lag-1 correlation in y-direction: ", lag1_corr_y, "\n")
+cat("Lag-1 correlation in z-direction: ", lag1_corr_z, "\n")
+cat("Lag-1 correlation in SUM-direction: ", lag1_corr_x + lag1_corr_y + lag1_corr_z, "\n")
+cat("Lag-1 correlation in geom mean: ", (abs(lag1_corr_x) * abs(lag1_corr_y) * abs(lag1_corr_z))^(1/3), "\n") #this looks particularly decent. 
+cat("Lag-1 correlation in power flatness mean: ", (abs(lag1_corr_x) * abs(lag1_corr_y) * abs(lag1_corr_z))^(1/3)/((abs(lag1_corr_x) + abs(lag1_corr_y) + abs(lag1_corr_z))/3), "\n") #this does not make sense. 
+
+cat("Lag-1 correlation in flatness: ", (abs(lag1_corr_x) * abs(lag1_corr_y) * abs(lag1_corr_z))/(abs(lag1_corr_x) + abs(lag1_corr_y) + abs(lag1_corr_z)), "\n")
+cat("Lag-1 correlation in mean: ", (abs(lag1_corr_x) + abs(lag1_corr_y) + abs(lag1_corr_z))/3, "\n") #this looks decent, maybe most decent. 
+cat("Lag-1 correlation in mean no abs: ", ((lag1_corr_x) + (lag1_corr_y) + (lag1_corr_z))/3, "\n") #this looks decent, maybe most decent. 
+
+```
+So suppose corr is 0.3767469, the corresponding smoothness should be 1/sqrt(-2*log(0.3767469)), 0.7156813
+if corr is 0.1933201 then it's 
+
+
+Apply it to smoonthness algo to see improvement... in ridge smooth, etc
+Running
+//sim_oct28_binmask_smooth.csv 19564054
+```{r}
+# Load necessary packages
+if (!require("pacman")) {install.packages("pacman"); library(pacman)}
+p_load(dplyr, readr)
+
+# Define the signal types and the file path templates
+signal_types <- c("binmask")
+base_paths <- c("/well/nichols/users/qcv214/pms2/pile/sim_oct11_", 
+                "/well/nichols/users/qcv214/pms2/pile/sim_oct28_")
+
+# Initialize an empty list to store the aggregated results for each file and signal type
+all_aggregated_results <- list()
+
+# Loop through each base path and each signal type
+for (base_path in base_paths) {
+  for (signal_type in signal_types) {
+    # Load the CSV file
+    file_path <- paste0(base_path, signal_type, "_smooth.csv")
+    results <- read_csv(file_path)
+    
+    # Aggregate the results by Method and SignalStrength
+    aggregated_results <- results %>%
+      group_by(Method, SignalStrength) %>%
+      summarise(
+        Overlap_Median = median(Overlap, na.rm = TRUE),
+        Overlap_SD = sd(Overlap, na.rm = TRUE),
+        FPR_Median = median(FPR, na.rm = TRUE),
+        FPR_SD = sd(FPR, na.rm = TRUE),
+        FDR_Median = median(FDR, na.rm = TRUE),
+        FDR_SD = sd(FDR, na.rm = TRUE)
+      ) %>%
+      mutate(SignalType = signal_type, SourceFile = basename(file_path))  # Add SignalType and SourceFile columns
+    
+    # Append to the list
+    all_aggregated_results[[paste0(signal_type, "_", basename(base_path))]] <- aggregated_results
+  }
+}
+
+# Concatenate all aggregated results into one data frame
+results <- bind_rows(all_aggregated_results)
+
+
+```
+```{r}
+# Base color scheme for methods
+base_colors <- c(
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge_smooth" = "#77868e",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69",   # Light green
+  "SPCA90_smooth_proj" = "#FDB462", # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Smoothing parameters
+smoothing_params <- c(0.25, 0.5, 0.798733989470034, 1, 2)
+
+# Generate new custom_colors dynamically for each smoothing magnitude
+custom_colors <- list()
+
+for (method in names(base_colors)) {
+  for (smooth_val in smoothing_params) {
+    # Correct naming convention for method with smoothing parameter
+    method_with_suffix <- gsub("_smooth", paste0("_smooth", smooth_val), method)
+    custom_colors[[method_with_suffix]] <- base_colors[[method]]
+  }
+}
+
+# Convert the custom_colors list to a named vector for ggplot
+custom_colors <- unlist(custom_colors)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each smoothing parameter and create a separate plot
+for (smooth_val in smoothing_params) {
+  
+  for (signal_type in signal_types) {
+    # Filter the results for the current SignalType and Smoothing Parameter
+    signal_data <- subset(results, SignalType == signal_type & grepl(paste0("_smooth", smooth_val), Method))
+    
+    # Create the plot with bolder lines and distinct colors
+    p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap_Median, color = Method)) +
+      geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+      ylim(0,80) +
+      scale_color_manual(values = custom_colors) +  # Use dynamic colors
+      theme_minimal() +
+      labs(title = paste("Median Power vs R-square -", signal_type, "- Smoothing:", smooth_val),
+           x = "R-square",
+           y = "Median Power",
+           color = "Method") +
+      theme(
+        plot.title = element_text(size = 14, face = "bold"),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 10)
+      )
+    
+    # Display the plot
+    print(p)
+  }
+}
+```
+Ineed, this is where SPCA proj achieves highest.
+
+Need to put to test on real data
+Created
+[half failed, didin't define shrinkage param] `co_pm_cv_full.R` all saved under `oct29_pm` 19765374 19883735(for smooth) ==> so many modification... 
+[half failed, didin't define shrinkage param] `age_cv_full.R` all saved under `oct29_age` 19787742 19883734(for smooth)
+The latter each ran for 4 hours and got OOM at spca proj
+
+  - changed dcv to cv for ridge
+  - changed theta.range to smaller
+  - changed num.vox.vec to smaller
+  - changed simple cv to using 5000 variables
+  - tune smoothing param via voxel-wise corr
+  - changed shinkrage param to 0.3 (from 0.01)
+
+
+//`co_pm_cv_full_smooth_pca.R` 19900282`co_pm_cv_full_smooth_spca.R` 19900333
+//`age_cv_full_smooth_pca.R` 19900398`age_cv_full_smooth_spca.R` 19900423
+
+correlation: 0.5878352, ie sigma = 0.97 (extremely close to 1)
+
+#30 Oct
+
+##real data
+
+### pair matching
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(tidyr)
+
+# Read data
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/oct29_pm_pms_full.csv")
+res3 <- read.csv("/well/nichols/users/qcv214/pms2/pile/oct29_pm_nbpms_full.csv")
+res3 <-  cbind(res3, matrix(data=NA, nrow=nrow(res3), ncol = (length(res) - length(res3))))
+colnames(res3) <- colnames(res)
+res4 <- read.csv("/well/nichols/users/qcv214/pms2/pile/oct29_pm_pms90_smooth_shrink_pca.csv")
+res4 <-  cbind(res4, matrix(data=NA, nrow=nrow(res4), ncol = (length(res) - length(res4))))
+colnames(res4) <- colnames(res)
+res5 <- read.csv("/well/nichols/users/qcv214/pms2/pile/oct29_pm_pms90_smooth_shrink_spca.csv")
+res5 <-  cbind(res5, matrix(data=NA, nrow=nrow(res5), ncol = (length(res) - length(res5))))
+colnames(res5) <- colnames(res)
+
+# Define custom color palette
+custom_colors <- c(
+  "PCA 90" = "#E41A1C",        # Red
+  "SPCA 90" = "#377EB8",       # Blue
+  "Ridge" = "#4DAF4A",         # Green
+  "Smooth_PCA" = "#984EA3", # Purple
+  "Smooth_SPCA" = "#FF7F00",# Orange
+  "Smooth_Ridge" = "#FFFF33",  # Yellow
+  "PMS" = "#A65628",           # Brown
+  "PMS_holp" = "#F781BF",      # Pink
+  "SmoothPCA_Proj" = "#8DD3C7",  # Light teal
+  "SmoothSPCA_Proj" = "#B3DE69", # Light green
+  "SmoothPCA_Cov" = "#FDB462",   # Orange-yellow
+  "SmoothSPCA_Cov" = "#FB8072"   # Salmon pink
+  # "SmoothPCA_Corr" = "#66C2A5",  # Medium teal
+  # "SmoothSPCA_Corr" = "#FC8D62"  # Dark salmon/orange
+)
+
+# First plot
+resdat <- as.data.frame(rbind(res[1:3,], res3[1:2, ], res4[1:4, ], res5[1:3, ]))
+num.vox.vec <- (1:25)*400
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge','PMS','PMS_holp','Smooth_Ridge','Smooth_PCA'
+                   ,'SmoothPCA_Proj','SmoothPCA_Cov','Smooth_SPCA','SmoothSPCA_Proj','SmoothSPCA_Cov')
+
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the first line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  geom_hline(aes(yintercept = 0.9997, color = "Ridge"), linetype = "dashed", size = 1) +
+  geom_hline(aes(yintercept = sd(age_tab$pm_tf[train.test.ind$train]), color = "sd response"), linetype = "dashed", size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Second plot
+resdat <- as.data.frame(rbind(res[4:6,], res3[3:4, ], res4[5:8, ], res5[4:6, ]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge','PMS','PMS_holp','Smooth_Ridge','Smooth_PCA','Smooth_SPCA'
+                   ,'SmoothPCA_Proj','SmoothSPCA_Proj','SmoothPCA_Cov','SmoothSPCA_Cov')
+
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the second line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  geom_hline(aes(yintercept = 1.0639, color = "Ridge"), linetype = "dashed", size = 1) +
+  geom_hline(aes(yintercept = sd(age_tab$pm_tf[train.test.ind$test]), color = "sd response"), linetype = "dashed", size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+This divergence looks very scary. It basically means that this method keep picking non-relevant voxels.
+
+
+###Age
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(tidyr)
+
+# Read data
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/oct29_age_pms_full.csv")
+res3 <- read.csv("/well/nichols/users/qcv214/pms2/pile/oct29_age_nbpms_full.csv")
+res3 <-  cbind(res3, matrix(data=NA, nrow=nrow(res3), ncol = (length(res) - length(res3))))
+colnames(res3) <- colnames(res)
+res4 <- read.csv("/well/nichols/users/qcv214/pms2/pile/oct29_age_pms90_smooth_shrink_pca.csv")
+res4 <-  cbind(res4, matrix(data=NA, nrow=nrow(res4), ncol = (length(res) - length(res4))))
+colnames(res4) <- colnames(res)
+res5 <- read.csv("/well/nichols/users/qcv214/pms2/pile/oct29_age_pms90_smooth_shrink_spca.csv")
+res5 <-  cbind(res5, matrix(data=NA, nrow=nrow(res5), ncol = (length(res) - length(res5))))
+colnames(res5) <- colnames(res)
+
+# Define custom color palette
+custom_colors <- c(
+  "PCA 90" = "#E41A1C",        # Red
+  "SPCA 90" = "#377EB8",       # Blue
+  "Ridge" = "#4DAF4A",         # Green
+  "Smooth_PCA" = "#984EA3", # Purple
+  "Smooth_SPCA" = "#FF7F00",# Orange
+  "Smooth_Ridge" = "#FFFF33",  # Yellow
+  "PMS" = "#A65628",           # Brown
+  "PMS_holp" = "#F781BF",      # Pink
+  "SmoothPCA_Proj" = "#8DD3C7",  # Light teal
+  "SmoothSPCA_Proj" = "#B3DE69", # Light green
+  "SmoothPCA_Cov" = "#FDB462",   # Orange-yellow
+  "SmoothSPCA_Cov" = "#FB8072"
+)
+
+# First plot
+resdat <- as.data.frame(rbind(res[1:3,], res3[1:2, ], res4[1:4, ], res5[1:3, ]))
+num.vox.vec <- (1:25)*400
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge','PMS','PMS_holp','Smooth_Ridge','Smooth_PCA'
+                   ,'SmoothPCA_Proj','SmoothPCA_Cov','Smooth_SPCA','SmoothSPCA_Proj','SmoothSPCA_Cov')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the first line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  geom_hline(aes(yintercept = 0.9114, color = "Ridge"), linetype = "dashed", size = 1) +
+  geom_hline(aes(yintercept = sd(age_tab$age[train.test.ind$train]), color = "sd response"), linetype = "dashed", size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Second plot
+resdat <- as.data.frame(rbind(res[4:6,], res3[3:4, ], res4[5:8, ], res5[4:6, ]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge','PMS','PMS_holp','Smooth_Ridge','Smooth_PCA'
+                   ,'SmoothPCA_Proj','SmoothPCA_Cov','Smooth_SPCA','SmoothSPCA_Proj','SmoothSPCA_Cov')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the second line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  geom_hline(aes(yintercept = 4.4875, color = "Ridge"), linetype = "dashed", size = 1) +
+  geom_hline(aes(yintercept = sd(age_tab$age[train.test.ind$test]), color = "sd response"), linetype = "dashed", size = 1) +
+  theme_minimal() +
+  ylim(4,5)+
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+Smoothing make results worse for SPCA.
+
+
+Actually if modelling pair matching isn't good. Then I can totally ignore it.
+
+
+I should also compare the result of all smoothing new and old.
+Note that with PMS too
+###Comparing sigma = 1 and computed 0.97
+these two numbers are crazy close, I dont think they are comparable
+
+
+Here are older results, note that here ridge and SPCA are double cross-validated
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(tidyr)
+
+# Read data
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/aug30_age_dcv_pms8090_full.csv")
+res2 <- read.csv("/well/nichols/users/qcv214/pms2/pile/aug30_age_dcv_pms8090_full_smooth.csv")
+res2 <-  cbind(res2, matrix(data=NA, nrow=nrow(res2), ncol = (length(res) - length(res2))))
+colnames(res2) <- colnames(res)
+res3 <- read.csv("/well/nichols/users/qcv214/pms2/pile/aug30_age_dcv_nbpms_full.csv")
+res3 <-  cbind(res3, matrix(data=NA, nrow=nrow(res3), ncol = (length(res) - length(res3))))
+colnames(res3) <- colnames(res)
+res4 <- read.csv("/well/nichols/users/qcv214/pms2/pile/sep7_age_dcv_pms90_smooth_shrink.csv")
+res4 <-  cbind(res4, matrix(data=NA, nrow=nrow(res4), ncol = (length(res) - length(res4))))
+colnames(res4) <- colnames(res)
+
+# Define custom color palette
+custom_colors <- c(
+  "PCA 90" = "#E41A1C",        # Red
+  "SPCA 90" = "#377EB8",       # Blue
+  "Ridge" = "#4DAF4A",         # Green
+  "Smooth_PCA 90" = "#984EA3", # Purple
+  "Smooth_SPCA 90" = "#FF7F00",# Orange
+  "Smooth_Ridge" = "#FFFF33",  # Yellow
+  "PMS" = "#A65628",           # Brown
+  "PMS_holp" = "#F781BF",      # Pink
+  "SmoothPCA_Proj" = "#8DD3C7",  # Light teal
+  "SmoothSPCA_Proj" = "#B3DE69", # Light green
+  "SmoothPCA_Cov" = "#FDB462",   # Orange-yellow
+  "SmoothSPCA_Cov" = "#FB8072"
+)
+
+# First plot
+resdat <- as.data.frame(rbind(res[1:3,], res2[c(1:3),], res3[1:2, ], res4[1:4, ]))
+num.vox.vec <- (1:50)*200
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge', 'Smooth_PCA 90','Smooth_SPCA 90','Smooth_Ridge','PMS','PMS_holp'
+                   ,'SmoothPCA_Proj','SmoothSPCA_Proj','SmoothPCA_Cov','SmoothSPCA_Cov')
+
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the first line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  geom_hline(aes(yintercept = 0.9114, color = "Ridge"), linetype = "dashed", size = 1) +
+  geom_hline(aes(yintercept = sd(age_tab$age[train.test.ind$train]), color = "sd response"), linetype = "dashed", size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Second plot
+resdat <- as.data.frame(rbind(res[4:6,], res2[c(4:6),], res3[3:4, ], res4[7:10, ]))
+colnames(resdat) <- num.vox.vec
+resdat$row_id <- c('PCA 90','SPCA 90','Ridge', 'Smooth_PCA 90','Smooth_SPCA 90','Smooth_Ridge','PMS','PMS_holp'
+                   ,'SmoothPCA_Proj','SmoothSPCA_Proj','SmoothPCA_Cov','SmoothSPCA_Cov')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the second line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  geom_hline(aes(yintercept = 4.4875, color = "Ridge"), linetype = "dashed", size = 1) +
+  geom_hline(aes(yintercept = sd(age_tab$age[train.test.ind$test]), color = "sd response"), linetype = "dashed", size = 1) +
+  theme_minimal() +
+  ylim(4,5) +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+
+
+##simulation
+//sim_oct28_dbmask_smooth.csv  19926030 => using voxel-wise smoothness
+
+
+###Turning binmask result into table
+```{r}
+# Load necessary packages
+if (!require("pacman")) {install.packages("pacman"); library(pacman)}
+p_load(dplyr, readr)
+
+# Define the signal types and the file path templates
+signal_types <- c("binmask")
+base_paths <- c("/well/nichols/users/qcv214/pms2/pile/sim_oct11_", 
+                "/well/nichols/users/qcv214/pms2/pile/sim_oct28_")
+
+# Initialize an empty list to store the aggregated results for each file and signal type
+all_aggregated_results <- list()
+
+# Loop through each base path and each signal type
+for (base_path in base_paths) {
+  for (signal_type in signal_types) {
+    # Load the CSV file
+    file_path <- paste0(base_path, signal_type, "_smooth.csv")
+    results <- read_csv(file_path)
+    
+    # Aggregate the results by Method and SignalStrength
+    aggregated_results <- results %>%
+      group_by(Method, SignalStrength) %>%
+      summarise(
+        Overlap_Median = median(Overlap, na.rm = TRUE),
+        Overlap_SD = sd(Overlap, na.rm = TRUE),
+        FPR_Median = median(FPR, na.rm = TRUE),
+        FPR_SD = sd(FPR, na.rm = TRUE),
+        FDR_Median = median(FDR, na.rm = TRUE),
+        FDR_SD = sd(FDR, na.rm = TRUE)
+      ) %>%
+      mutate(SignalType = signal_type, SourceFile = basename(file_path))  # Add SignalType and SourceFile columns
+    
+    # Append to the list
+    all_aggregated_results[[paste0(signal_type, "_", basename(base_path))]] <- aggregated_results
+  }
+}
+
+# Concatenate all aggregated results into one data frame
+results <- bind_rows(all_aggregated_results)
+```
+
+```{r}
+# Load necessary packages
+if (!require("pacman")) {install.packages("pacman"); library(pacman)}
+p_load(dplyr, readr)
+
+# Define the signal types and the file path template
+signal_types <- c("binmask") #, "dbmask", "sparsemask")
+# signal_types <- c("binmask")
+base_path <- "/well/nichols/users/qcv214/pms2/pile/sim_oct3_"
+
+# Initialize an empty list to store the aggregated results for each signal_type
+all_aggregated_results <- list()
+
+# Loop through each signal_type
+for (signal_type in signal_types) {
+  # Load the CSV file
+  file_path <- paste0(base_path, signal_type, ".csv")
+  results <- read_csv(file_path)
+  
+  # Aggregate the results by Method and SignalStrength
+  aggregated_results <- results %>%
+    group_by(Method, SignalStrength) %>%
+    summarise(
+      Overlap_Median = median(Overlap, na.rm = TRUE),
+      Overlap_SD = sd(Overlap, na.rm = TRUE),
+      FPR_Median = median(FPR, na.rm = TRUE),
+      FPR_SD = sd(FPR, na.rm = TRUE),
+      FDR_Median = median(FDR, na.rm = TRUE),
+      FDR_SD = sd(FDR, na.rm = TRUE)
+    ) %>%
+    mutate(SignalType = signal_type)  # Add SignalType column
+  
+  # Append to the list
+  all_aggregated_results[[signal_type]] <- aggregated_results
+}
+
+# Concatenate all aggregated results into one matrix
+results <- bind_rows(all_aggregated_results)
+
+```
+
+Aggregated
+
+```{r}
+# Load necessary packages
+if (!require("pacman")) {install.packages("pacman"); library(pacman)}
+p_load(dplyr, readr)
+
+# Define the signal types and the file path templates
+signal_types <- c("binmask")  # Add additional signal types as needed
+base_paths <- c(
+  #"/well/nichols/users/qcv214/pms2/pile/sim_oct11_", 
+  "/well/nichols/users/qcv214/pms2/pile/sim_oct28_",
+  "/well/nichols/users/qcv214/pms2/pile/sim_oct3_"
+)
+
+# Initialize an empty list to store the aggregated results for each file and signal type
+all_aggregated_results <- list()
+
+# Loop through each base path and each signal type
+for (base_path in base_paths) {
+  for (signal_type in signal_types) {
+    # Define file suffix based on the path type
+    if (grepl("oct3", base_path)) {
+      file_suffix <- ".csv"
+    } else {
+      file_suffix <- "_smooth.csv"
+    }
+    
+    # Load the CSV file
+    file_path <- paste0(base_path, signal_type, file_suffix)
+    
+    if (file.exists(file_path)) {
+      results <- read_csv(file_path)
+      
+      # Aggregate the results by Method and SignalStrength
+      aggregated_results <- results %>%
+        group_by(Method, SignalStrength) %>%
+        summarise(
+          Overlap_Median = median(Overlap, na.rm = TRUE),
+          Overlap_SD = sd(Overlap, na.rm = TRUE),
+          FPR_Median = median(FPR, na.rm = TRUE),
+          FPR_SD = sd(FPR, na.rm = TRUE),
+          FDR_Median = median(FDR, na.rm = TRUE),
+          FDR_SD = sd(FDR, na.rm = TRUE)
+        ) %>%
+        mutate(SignalType = signal_type, SourceFile = basename(file_path))  # Add SignalType and SourceFile columns
+      
+      # Append to the list
+      all_aggregated_results[[paste0(signal_type, "_", basename(base_path))]] <- aggregated_results
+    }
+  }
+}
+
+# Concatenate all aggregated results into one data frame
+results <- bind_rows(all_aggregated_results)
+
+# View the combined results
+print(results)
+```
+Something is currently wrong with oct3... somehow it's empty right now. need to re-run
+//`sim_oct3_binmask.csv`. 19908905 ==> problem is this still does glmnet.
+
+```{r}
+# Load the necessary package
+if (!require("pacman")) {install.packages("pacman"); library(pacman)}
+p_load(dplyr, tidyr)
+
+# Pivot the table to have "SignalStrength" as columns with "Overlap_Median" as the values
+# results_pivoted <- results %>%
+#   select(Method, SignalType, SourceFile, SignalStrength, Overlap_Median) %>%
+#   pivot_wider(names_from = SignalStrength, values_from = Overlap_Median, 
+#               names_prefix = "Overlap_Median_")
+results_pivoted <- results %>%
+  select(Method, SignalStrength, Overlap_Median) %>%
+  pivot_wider(names_from = SignalStrength, values_from = Overlap_Median, 
+              names_prefix = "Overlap_Median_") %>%
+  mutate(across(starts_with("Overlap_Median_"), ~ round(., 1)))
+
+# View the transformed table
+# print(results_pivoted)
+results_pivoted <- results_pivoted %>%
+  arrange(Method)
+
+# View the sorted table
+print(results_pivoted)
+```
+Exporting
+```{r}
+# Define the file path for the CSV
+file_path <- "/well/nichols/users/qcv214/pms2/tables/results_binmask_31oct.csv"
+
+# Export the table as a CSV file
+write.csv(results_pivoted, file = file_path, row.names = FALSE)
+
+# Confirm the file path
+cat("Results exported to:", file_path)
 ```
 
 
 
+#31 Oct
+
+## simulation smooth with DBmask
+Old results
+###db mask
+```{r}
+# Load necessary packages
+if (!require("pacman")) {install.packages("pacman"); library(pacman)}
+p_load(dplyr, readr, ggplot2)
+
+# Define the signal types and the file path template
+signal_types <- c("dbmask")#, "dbmask", "sparsemask")
+# signal_types <- c("binmask")
+base_path <- "/well/nichols/users/qcv214/pms2/pile/sim_oct11_"
+
+# Initialize an empty list to store the aggregated results for each signal_type
+all_aggregated_results <- list()
+
+# Loop through each signal_type
+for (signal_type in signal_types) {
+  # Load the CSV file
+  file_path <- paste0(base_path, signal_type, "_smooth.csv")
+  results <- read_csv(file_path)
+  
+  # Aggregate the results by Method and SignalStrength
+  aggregated_results <- results %>%
+    group_by(Method, SignalStrength) %>%
+    summarise(
+      Overlap_Median = median(Overlap, na.rm = TRUE),
+      Overlap_SD = sd(Overlap, na.rm = TRUE),
+      FPR_Median = median(FPR, na.rm = TRUE),
+      FPR_SD = sd(FPR, na.rm = TRUE),
+      FDR_Median = median(FDR, na.rm = TRUE),
+      FDR_SD = sd(FDR, na.rm = TRUE)
+    ) %>%
+    mutate(SignalType = signal_type)  # Add SignalType column
+  
+  # Append to the list
+  all_aggregated_results[[signal_type]] <- aggregated_results
+}
+
+# Concatenate all aggregated results into one matrix
+results <- bind_rows(all_aggregated_results)
+
+# Base color scheme for methods
+base_colors <- c(
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge_smooth" = "#77868e",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69",   # Light green
+  "SPCA90_smooth_proj" = "#FDB462", # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Smoothing parameters
+smoothing_params <- c(0.25, 0.5, 1, 2)
+
+# Generate new custom_colors dynamically for each smoothing magnitude
+custom_colors <- list()
+
+for (method in names(base_colors)) {
+  for (smooth_val in smoothing_params) {
+    # Correct naming convention for method with smoothing parameter
+    method_with_suffix <- gsub("_smooth", paste0("_smooth", smooth_val), method)
+    custom_colors[[method_with_suffix]] <- base_colors[[method]]
+  }
+}
+
+# Convert the custom_colors list to a named vector for ggplot
+custom_colors <- unlist(custom_colors)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each smoothing parameter and create a separate plot
+for (smooth_val in smoothing_params) {
+  
+  for (signal_type in signal_types) {
+    # Filter the results for the current SignalType and Smoothing Parameter
+    signal_data <- subset(results, SignalType == signal_type & grepl(paste0("_smooth", smooth_val), Method))
+    
+    # Create the plot with bolder lines and distinct colors
+    p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap_Median, color = Method)) +
+      geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+      ylim(0,80) +
+      scale_color_manual(values = custom_colors) +  # Use dynamic colors
+      theme_minimal() +
+      labs(title = paste("Median Power vs R-square -", signal_type, "- Smoothing:", smooth_val),
+           x = "R-square",
+           y = "Median Power",
+           color = "Method") +
+      theme(
+        plot.title = element_text(size = 14, face = "bold"),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 10)
+      )
+    
+    # Display the plot
+    print(p)
+  }
+}
+```
+
+New result
+```{r}
+# Load necessary packages
+if (!require("pacman")) {install.packages("pacman"); library(pacman)}
+p_load(dplyr, readr)
+
+# Define the signal types and the file path template
+signal_types <- c("dbmask")#, "dbmask", "sparsemask")
+# signal_types <- c("binmask")
+base_path <- "/well/nichols/users/qcv214/pms2/pile/sim_oct28_"
+
+# Initialize an empty list to store the aggregated results for each signal_type
+all_aggregated_results <- list()
+
+# Loop through each signal_type
+for (signal_type in signal_types) {
+  # Load the CSV file
+  file_path <- paste0(base_path, signal_type, "_smooth.csv")
+  results <- read_csv(file_path)
+  
+  # Aggregate the results by Method and SignalStrength
+  aggregated_results <- results %>%
+    group_by(Method, SignalStrength) %>%
+    summarise(
+      Overlap_Median = median(Overlap, na.rm = TRUE),
+      Overlap_SD = sd(Overlap, na.rm = TRUE),
+      FPR_Median = median(FPR, na.rm = TRUE),
+      FPR_SD = sd(FPR, na.rm = TRUE),
+      FDR_Median = median(FDR, na.rm = TRUE),
+      FDR_SD = sd(FDR, na.rm = TRUE)
+    ) %>%
+    mutate(SignalType = signal_type)  # Add SignalType column
+  
+  # Append to the list
+  all_aggregated_results[[signal_type]] <- aggregated_results
+}
+
+# Concatenate all aggregated results into one matrix
+results <- bind_rows(all_aggregated_results)
+
+# Base color scheme for methods
+base_colors <- c(
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge_smooth" = "#77868e",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69",   # Light green
+  "SPCA90_smooth_proj" = "#FDB462", # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Smoothing parameters
+smoothing_params <- c(0.7156813)
+
+# Generate new custom_colors dynamically for each smoothing magnitude
+custom_colors <- list()
+
+for (method in names(base_colors)) {
+  for (smooth_val in smoothing_params) {
+    # Correct naming convention for method with smoothing parameter
+    method_with_suffix <- gsub("_smooth", paste0("_smooth", smooth_val), method)
+    custom_colors[[method_with_suffix]] <- base_colors[[method]]
+  }
+}
+
+# Convert the custom_colors list to a named vector for ggplot
+custom_colors <- unlist(custom_colors)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each smoothing parameter and create a separate plot
+for (smooth_val in smoothing_params) {
+  
+  for (signal_type in signal_types) {
+    # Filter the results for the current SignalType and Smoothing Parameter
+    signal_data <- subset(results, SignalType == signal_type & grepl(paste0("_smooth", smooth_val), Method))
+    
+    # Create the plot with bolder lines and distinct colors
+    p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap_Median, color = Method)) +
+      geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+      ylim(0,80) +
+      scale_color_manual(values = custom_colors) +  # Use dynamic colors
+      theme_minimal() +
+      labs(title = paste("Median Power vs R-square -", signal_type, "- Smoothing:", smooth_val),
+           x = "R-square",
+           y = "Median Power",
+           color = "Method") +
+      theme(
+        plot.title = element_text(size = 14, face = "bold"),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 10)
+      )
+    
+    # Display the plot
+    print(p)
+  }
+}
+```
+it's worse than smoothing at 0.25 and 0.5
+Maybe I need to tune pms here as well to look. 
 
 
+##Fixing smoothness for real data
+`age_cv_full_pca_fixsmooth.R` oct29_age_pms90_smooth0.5 and oct29_age_pms90_smooth2  20196193
+`age_cv_full_spca_fixsmooth.R` 20196177 (0.5) and 20431538 (2) have to run spearately due to OOM
+`age_cv_full_checkcorr.R` ==> checking the compute correlation (mean without abs) to see if i needa re-run 20207567
+So with abs and WITHOUT ABS(), it's 0.7285967 , its 0.7285967, this means sigma = 1.256625
+
+
+##Simulation
+db mask
+//sim_oct31_dbmask.csv 20301466 => fix ridge and spca
+//sim_oct31_dbmask_smooth.csv  20302470
