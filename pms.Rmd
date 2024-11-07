@@ -12321,8 +12321,8 @@ Maybe I need to tune pms here as well to look.
 
 
 ##Fixing smoothness for real data
-`age_cv_full_pca_fixsmooth.R` oct29_age_pms90_smooth0.5 and oct29_age_pms90_smooth2  20196193
-`age_cv_full_spca_fixsmooth.R` 20196177 (0.5) and 20431538 (2) have to run spearately due to OOM
+//`age_cv_full_pca_fixsmooth.R` oct29_age_pms90_smooth0.5 and oct29_age_pms90_smooth2  20196193
+//`age_cv_full_spca_fixsmooth.R` 20196177 (0.5) and 20431538 (2) have to run spearately due to OOM
 `age_cv_full_checkcorr.R` ==> checking the compute correlation (mean without abs) to see if i needa re-run 20207567
 So with abs and WITHOUT ABS(), it's 0.7285967 , its 0.7285967, this means sigma = 1.256625
 
@@ -12331,3 +12331,397 @@ So with abs and WITHOUT ABS(), it's 0.7285967 , its 0.7285967, this means sigma 
 db mask
 //sim_oct31_dbmask.csv 20301466 => fix ridge and spca
 //sim_oct31_dbmask_smooth.csv  20302470
+
+
+###db mask with smoothing
+```{r}
+# Load necessary packages
+if (!require("pacman")) {install.packages("pacman"); library(pacman)}
+p_load(dplyr, readr, ggplot2)
+
+# Define the signal types and the file path template
+signal_types <- c("dbmask")
+base_path <- "/well/nichols/users/qcv214/pms2/pile/sim_oct31_"
+
+# Initialize an empty list to store the aggregated results for each signal_type
+all_aggregated_results <- list()
+
+# Loop through each signal_type
+for (signal_type in signal_types) {
+  # Load the CSV file
+  file_path <- paste0(base_path, signal_type, "_smooth.csv")
+  results <- read_csv(file_path)
+  
+  # Aggregate the results by Method and SignalStrength
+  aggregated_results <- results %>%
+    group_by(Method, SignalStrength) %>%
+    summarise(
+      Overlap_Median = median(Overlap, na.rm = TRUE),
+      Overlap_SD = sd(Overlap, na.rm = TRUE),
+      FPR_Median = median(FPR, na.rm = TRUE),
+      FPR_SD = sd(FPR, na.rm = TRUE),
+      FDR_Median = median(FDR, na.rm = TRUE),
+      FDR_SD = sd(FDR, na.rm = TRUE)
+    ) %>%
+    mutate(SignalType = signal_type)  # Add SignalType column
+  
+  # Append to the list
+  all_aggregated_results[[signal_type]] <- aggregated_results
+}
+
+# Concatenate all aggregated results into one matrix
+results <- bind_rows(all_aggregated_results)
+
+# Base color scheme for methods
+base_colors <- c(
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge_smooth" = "#77868e",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69",   # Light green
+  "SPCA90_smooth_proj" = "#FDB462", # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Smoothing parameters
+smoothing_params <- c(0.25, 0.5, 0.5515848, 0.7156813, 1, 2)
+
+# Generate new custom_colors dynamically for each smoothing magnitude
+custom_colors <- list()
+
+for (method in names(base_colors)) {
+  for (smooth_val in smoothing_params) {
+    # Correct naming convention for method with smoothing parameter
+    method_with_suffix <- gsub("_smooth", paste0("_smooth", smooth_val), method, fixed = TRUE)
+    custom_colors[[method_with_suffix]] <- base_colors[[method]]
+  }
+}
+
+# Convert the custom_colors list to a named vector for ggplot
+custom_colors <- unlist(custom_colors)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each smoothing parameter and create a separate plot
+for (smooth_val in smoothing_params) {
+  
+  for (signal_type in signal_types) {
+    # Filter the results for the current SignalType and exact smoothing parameter in Method
+    pattern <- paste0("_smooth", smooth_val, "(?![0-9])")  # Match exact segment without extra digits after smooth_val
+    signal_data <- subset(results, SignalType == signal_type & grepl(pattern, Method, perl = TRUE))
+    
+    # Create the plot with bolder lines and distinct colors
+    p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap_Median, color = Method)) +
+      geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+      ylim(0, 80) +
+      scale_color_manual(values = custom_colors) +  # Use dynamic colors
+      theme_minimal() +
+      labs(title = paste("Median Power vs R-square -", signal_type, "- Smoothing:", smooth_val),
+           x = "R-square",
+           y = "Median Power",
+           color = "Method") +
+      theme(
+        plot.title = element_text(size = 14, face = "bold"),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 10)
+      )
+    
+    # Display the plot
+    print(p)
+  }
+}
+```
+##new results for db mask
+```{r}
+# Load necessary packages
+if (!require("pacman")) {install.packages("pacman"); library(pacman)}
+p_load(dplyr, readr)
+
+# Define the signal types and the file path template
+signal_types <- c("dbmask")
+# signal_types <- c("binmask")
+base_path <- "/well/nichols/users/qcv214/pms2/pile/sim_oct31_"
+
+# Initialize an empty list to store the aggregated results for each signal_type
+all_aggregated_results <- list()
+
+# Loop through each signal_type
+for (signal_type in signal_types) {
+  # Load the CSV file
+  file_path <- paste0(base_path, signal_type, ".csv")
+  results <- read_csv(file_path)
+  
+  # Aggregate the results by Method and SignalStrength
+  aggregated_results <- results %>%
+    group_by(Method, SignalStrength) %>%
+    summarise(
+      Overlap_Median = median(Overlap, na.rm = TRUE),
+      Overlap_SD = sd(Overlap, na.rm = TRUE),
+      FPR_Median = median(FPR, na.rm = TRUE),
+      FPR_SD = sd(FPR, na.rm = TRUE),
+      FDR_Median = median(FDR, na.rm = TRUE),
+      FDR_SD = sd(FDR, na.rm = TRUE)
+    ) %>%
+    mutate(SignalType = signal_type)  # Add SignalType column
+  
+  # Append to the list
+  all_aggregated_results[[signal_type]] <- aggregated_results
+}
+
+# Concatenate all aggregated results into one matrix
+results <- bind_rows(all_aggregated_results)
+
+```
+look at median power
+```{r}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Define a custom color palette with distinct colors
+custom_colors <- c(
+  "PCA90" = "#1b9e77",
+  "SPCA90" = "#d95f02",
+  "PCA90_smooth" = "#7570b3",
+  "SPCA90_smooth" = "#e7298a",
+  "ridge" = "#66a61e",
+  "ridge_smooth" = "#77868e",
+  "pms" = "#e6ab02",
+  "holp" = "#a6761d",
+  "tmap" = "#466791",
+  "PCA90_smooth_proj" = "#8DD3C7",  # Light teal
+  "PCA90_smooth_cov" = "#B3DE69", # Light green
+  "SPCA90_smooth_proj" = "#FDB462",   # Orange-yellow
+  "SPCA90_smooth_cov" = "#FB8072"   # Salmon pink
+)
+
+# Unique Signal Types
+signal_types <- unique(results$SignalType)
+
+# Loop through each SignalType and create a separate plot
+for (signal_type in signal_types) {
+  # Filter the results for the current SignalType
+  signal_data <- subset(results, SignalType == signal_type)
+  
+  # Create the plot with bolder lines and distinct colors
+  p <- ggplot(signal_data, aes(x = SignalStrength, y = Overlap_Median, color = Method)) +
+    geom_line(size = 1.5) +  # Make the lines bolder with size = 1.5
+    # ylim(0,100) +
+    scale_color_manual(values = custom_colors) +  # Use custom colors
+    theme_minimal() +
+    labs(title = paste("Median Power vs R-square -", signal_type),
+         x = "R-square",
+         y = "Median Power",
+         color = "Method") +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 10)
+    )
+  
+  # Display the plot
+  print(p)
+  # Save the plot to a file
+  # ggsave(filename = paste0("/well/nichols/users/qcv214/pms2/viz/sim/", signal_type, "_sensitivity_plot.png"),
+  #        plot = p, width = 8, height = 6)
+}
+```
+These graphs are different.
+
+
+
+
+#4 Nov
+
+##real data age
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(tidyr)
+
+# Read data
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/oct29_age_pms_full.csv")
+res3 <- read.csv("/well/nichols/users/qcv214/pms2/pile/oct29_age_nbpms_full.csv")
+res3 <-  cbind(res3, matrix(data=NA, nrow=nrow(res3), ncol = (length(res) - length(res3))))
+colnames(res3) <- colnames(res)
+res4 <- read.csv("/well/nichols/users/qcv214/pms2/pile/oct29_age_pms90_smooth_shrink_pca.csv")
+res4 <-  cbind(res4, matrix(data=NA, nrow=nrow(res4), ncol = (length(res) - length(res4))))
+colnames(res4) <- colnames(res)
+res5 <- read.csv("/well/nichols/users/qcv214/pms2/pile/oct29_age_pms90_smooth_shrink_spca.csv")
+res5 <-  cbind(res5, matrix(data=NA, nrow=nrow(res5), ncol = (length(res) - length(res5))))
+colnames(res5) <- colnames(res)
+
+# Define custom color palette
+custom_colors <- c(
+  "PCA 90" = "#E41A1C",        # Red
+  "SPCA 90" = "#377EB8",       # Blue
+  "Ridge" = "#4DAF4A",         # Green
+  "Smooth_PCA" = "#984EA3", # Purple
+  "Smooth_SPCA" = "#FF7F00",# Orange
+  "Smooth_Ridge" = "#FFFF33",  # Yellow
+  "PMS" = "#A65628",           # Brown
+  "PMS_holp" = "#F781BF",      # Pink
+  "SmoothPCA_Proj" = "#8DD3C7",  # Light teal
+  "SmoothSPCA_Proj" = "#B3DE69", # Light green
+  "SmoothPCA_Cov" = "#FDB462",   # Orange-yellow
+  "SmoothSPCA_Cov" = "#FB8072"
+)
+
+# First plot
+resdat <- as.data.frame(rbind(res[1:3,], res3[1:2, ], res4[1:4, ], res5[1:3, ]))
+num.vox.vec <- (1:25)*400
+colnames(resdat) <- num.vox.vec
+# resdat$row_id <- c('PCA 90','SPCA 90','Ridge','PMS','PMS_holp','Smooth_Ridge','Smooth_PCA'
+#                    ,'SmoothPCA_Proj','SmoothPCA_Cov','Smooth_SPCA','SmoothSPCA_Proj','SmoothSPCA_Cov')
+resdat$row_id <- c('Ridge','PCA 90','SPCA 90','PMS','PMS_holp','Smooth_Ridge','Smooth_PCA'
+                   ,'SmoothPCA_Proj','SmoothPCA_Cov','Smooth_SPCA','SmoothSPCA_Proj','SmoothSPCA_Cov')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the first line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  geom_hline(aes(yintercept = 0.9114, color = "Ridge"), linetype = "dashed", size = 1) +
+  geom_hline(aes(yintercept = sd(age_tab$age[train.test.ind$train]), color = "sd response"), linetype = "dashed", size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Second plot
+resdat <- as.data.frame(rbind(res[4:6,], res3[3:4, ], res4[5:8, ], res5[4:6, ]))
+colnames(resdat) <- num.vox.vec
+# resdat$row_id <- c('PCA 90','SPCA 90','Ridge','PMS','PMS_holp','Smooth_Ridge','Smooth_PCA'
+#                    ,'SmoothPCA_Proj','SmoothPCA_Cov','Smooth_SPCA','SmoothSPCA_Proj','SmoothSPCA_Cov')
+resdat$row_id <- c('Ridge','PCA 90','SPCA 90','PMS','PMS_holp','Smooth_Ridge','Smooth_PCA'
+                   ,'SmoothPCA_Proj','SmoothPCA_Cov','Smooth_SPCA','SmoothSPCA_Proj','SmoothSPCA_Cov')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the second line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  geom_hline(aes(yintercept = 4.4875, color = "Ridge"), linetype = "dashed", size = 1) +
+  geom_hline(aes(yintercept = sd(age_tab$age[train.test.ind$test]), color = "sd response"), linetype = "dashed", size = 1) +
+  theme_minimal() +
+  ylim(4,5)+
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+Now that we fixed it, SPCA is the worst and PCA is the best!!!
+
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(tidyr)
+
+# Read data
+res <- read.csv("/well/nichols/users/qcv214/pms2/pile/oct29_age_pms90_smooth_shrink_pca.csv")
+res3 <- read.csv("/well/nichols/users/qcv214/pms2/pile/oct29_age_pms90_smooth_shrink_spca.csv")
+res3 <-  cbind(res3, matrix(data=NA, nrow=nrow(res3), ncol = (length(res) - length(res3))))
+colnames(res3) <- colnames(res)
+res4 <- read.csv("/well/nichols/users/qcv214/pms2/pile/oct29_age_pms90_smooth0.5_shrink_pca.csv")
+res4 <-  cbind(res4, matrix(data=NA, nrow=nrow(res4), ncol = (length(res) - length(res4))))
+colnames(res4) <- colnames(res)
+res5 <- read.csv("/well/nichols/users/qcv214/pms2/pile/oct29_age_pms90_smooth0.5_shrink_spca.csv")
+res5 <-  cbind(res5, matrix(data=NA, nrow=nrow(res5), ncol = (length(res) - length(res5))))
+colnames(res5) <- colnames(res)
+res6 <- read.csv("/well/nichols/users/qcv214/pms2/pile/oct29_age_pms90_smooth2_shrink_spca.csv")
+res6 <-  cbind(res6, matrix(data=NA, nrow=nrow(res6), ncol = (length(res) - length(res6))))
+colnames(res6) <- colnames(res)
+res7 <- read.csv("/well/nichols/users/qcv214/pms2/pile/oct29_age_pms90_smooth2_shrink_spca.csv")
+res7 <-  cbind(res7, matrix(data=NA, nrow=nrow(res7), ncol = (length(res) - length(res7))))
+colnames(res7) <- colnames(res)
+
+# Define custom color palette
+
+custom_colors <- c(
+  # Smooth
+  "Smooth_PCA" = "#984EA3",           # Purple
+  "Smooth_SPCA" = "#FF7F00",          # Orange
+  "Smooth_Ridge" = "#FFFF33",         # Yellow
+  "SmoothPCA_Proj" = "#8DD3C7",       # Light teal
+  "SmoothSPCA_Proj" = "#66C2A5",      # Medium teal
+  "SmoothPCA_Cov" = "#B3DE69",        # Light green
+  "SmoothSPCA_Cov" = "#FB8072",       # Salmon pink
+  
+  # Smooth 0.5
+  "Smooth0.5_PCA" = "#C51B7D",        # Darker purple
+  "Smooth0.5_SPCA" = "#E41A1C",       # Red-orange
+  "Smooth0.5_Ridge" = "#FFD92F",      # Golden yellow
+  "Smooth0.5PCA_Proj" = "#A6D853",    # Light green
+  "Smooth0.5SPCA_Proj" = "#66A61E",   # Green
+  "Smooth0.5PCA_Cov" = "#FFB3AB",     # Pale pink
+  "Smooth0.5SPCA_Cov" = "#F781BF",    # Pink
+  
+  # Smooth 2
+  "Smooth2_PCA" = "#756BB1",          # Medium purple
+  "Smooth2_SPCA" = "#D95F02",         # Dark orange
+  "Smooth2_Ridge" = "#BC80BD",        # Soft lavender
+  "Smooth2PCA_Proj" = "#B3E2CD",      # Mint green
+  "Smooth2SPCA_Proj" = "#5AB4AC",     # Bluish teal
+  "Smooth2PCA_Cov" = "#FDCDAC",       # Pale salmon
+  "Smooth2SPCA_Cov" = "#E78AC3"       # Light pink
+)
+
+# First plot
+resdat <- as.data.frame(rbind(res[1:4,], res3[1:3, ], res4[1:4, ], res5[1:3, ], res6[1:4, ], res7[1:3, ]))
+num.vox.vec <- (1:25)*400
+colnames(resdat) <- num.vox.vec
+# resdat$row_id <- c('PCA 90','SPCA 90','Ridge','PMS','PMS_holp','Smooth_Ridge','Smooth_PCA'
+#                    ,'SmoothPCA_Proj','SmoothPCA_Cov','Smooth_SPCA','SmoothSPCA_Proj','SmoothSPCA_Cov')
+resdat$row_id <- c('Smooth_Ridge','Smooth_PCA','SmoothPCA_Proj','SmoothPCA_Cov','Smooth_SPCA','SmoothSPCA_Proj','SmoothSPCA_Cov',
+                   'Smooth0.5_Ridge','Smooth0.5_PCA','Smooth0.5PCA_Proj','Smooth0.5PCA_Cov','Smooth0.5_SPCA','Smooth0.5SPCA_Proj','Smooth0.5SPCA_Cov',
+                   'Smooth2_Ridge','Smooth2_PCA','Smooth2PCA_Proj','Smooth2PCA_Cov','Smooth2_SPCA','Smooth2SPCA_Proj','Smooth2SPCA_Cov')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the first line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  geom_hline(aes(yintercept = 0.9114, color = "Ridge"), linetype = "dashed", size = 1) +
+  geom_hline(aes(yintercept = sd(age_tab$age[train.test.ind$train]), color = "sd response"), linetype = "dashed", size = 1) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Train RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+
+# Second plot
+resdat <- as.data.frame(rbind(res[5:8,], res3[4:6, ], res4[5:8, ], res5[4:6, ], res6[5:8, ], res7[4:6, ]))
+
+colnames(resdat) <- num.vox.vec
+# resdat$row_id <- c('PCA 90','SPCA 90','Ridge','PMS','PMS_holp','Smooth_Ridge','Smooth_PCA'
+#                    ,'SmoothPCA_Proj','SmoothPCA_Cov','Smooth_SPCA','SmoothSPCA_Proj','SmoothSPCA_Cov')
+resdat$row_id <- c('Smooth_Ridge','Smooth_PCA','SmoothPCA_Proj','SmoothPCA_Cov','Smooth_SPCA','SmoothSPCA_Proj','SmoothSPCA_Cov',
+                   'Smooth0.5_Ridge','Smooth0.5_PCA','Smooth0.5PCA_Proj','Smooth0.5PCA_Cov','Smooth0.5_SPCA','Smooth0.5SPCA_Proj','Smooth0.5SPCA_Cov',
+                   'Smooth2_Ridge','Smooth2_PCA','Smooth2PCA_Proj','Smooth2PCA_Cov','Smooth2_SPCA','Smooth2SPCA_Proj','Smooth2SPCA_Cov')
+# Reshape the data to long format
+resdat_long <- pivot_longer(resdat, cols = -row_id, names_to = "column", values_to = "value")
+
+# Create the second line plot
+ggplot(resdat_long, aes(x = as.numeric(column), y = value, group = row_id, color = as.factor(row_id))) +
+  geom_line(size = 1) +
+  geom_hline(aes(yintercept = 4.4875, color = "Ridge"), linetype = "dashed", size = 1) +
+  geom_hline(aes(yintercept = sd(age_tab$age[train.test.ind$test]), color = "sd response"), linetype = "dashed", size = 1) +
+  theme_minimal() +
+  ylim(4,5)+
+  scale_x_continuous(breaks = seq(0, 10000, 1000)) +
+  scale_color_manual(values = custom_colors) +
+  labs(title = "Test RMSE", x = "No. Variables", y = "RMSE", color = "Method")
+```
+I think ridge is in the wrong place with PCA
+
+
+
+
+
+
+
+
+
